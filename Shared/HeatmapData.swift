@@ -1,0 +1,413 @@
+import EventKit
+import Foundation
+import SwiftUI
+
+// MARK: - Models
+
+struct CompletedReminder: Codable, Identifiable, Hashable {
+    var id: String { title + listName + completionTime.timeIntervalSince1970.description }
+    let title: String
+    let listName: String
+    let listColorIndex: Int
+    let completionTime: Date
+}
+
+struct HeatmapDay: Codable, Identifiable, Hashable {
+    var id: Date { date }
+    let date: Date
+    let count: Int
+    let reminders: [CompletedReminder]
+
+    init(date: Date, count: Int, reminders: [CompletedReminder] = []) {
+        self.date = date
+        self.count = count
+        self.reminders = reminders
+    }
+}
+
+struct TrackerDay: Codable, Identifiable, Hashable {
+    var id: Date { date }
+    let date: Date
+    let count: Int
+    let completions: [CompletedReminder]
+
+    init(date: Date, count: Int, completions: [CompletedReminder] = []) {
+        self.date = date
+        self.count = count
+        self.completions = completions
+    }
+}
+
+struct TrackerSummary: Codable, Identifiable, Hashable {
+    var id: String { reminderTitle }
+    let reminderTitle: String
+    let calendarTitle: String
+    let calendarColorIndex: Int
+    let days: [TrackerDay]
+    let totalCount: Int
+}
+
+struct WidgetData {
+    let days: [HeatmapDay]
+    let weekCount: Int
+    let todayCount: Int
+    let streak: Int
+    let bestDayCount: Int
+    let isError: Bool
+
+    init(days: [HeatmapDay], weekCount: Int, todayCount: Int, streak: Int, bestDayCount: Int, isError: Bool = false) {
+        self.days = days
+        self.weekCount = weekCount
+        self.todayCount = todayCount
+        self.streak = streak
+        self.bestDayCount = bestDayCount
+        self.isError = isError
+    }
+}
+
+struct TrackerWidgetData {
+    let summaries: [TrackerSummary]
+    let isError: Bool
+
+    init(summaries: [TrackerSummary], isError: Bool = false) {
+        self.summaries = summaries
+        self.isError = isError
+    }
+}
+
+// MARK: - List Color Palette
+
+enum ListColorPalette {
+    static let colors: [Color] = [
+        Color(red: 0.25, green: 0.77, blue: 0.39),  // green
+        Color(red: 0.30, green: 0.60, blue: 0.90),  // blue
+        Color(red: 0.90, green: 0.50, blue: 0.20),  // orange
+        Color(red: 0.80, green: 0.30, blue: 0.35),  // red
+        Color(red: 0.60, green: 0.40, blue: 0.80),  // purple
+        Color(red: 0.95, green: 0.70, blue: 0.20),  // yellow
+        Color(red: 0.40, green: 0.75, blue: 0.75),  // teal
+        Color(red: 0.85, green: 0.45, blue: 0.65),  // pink
+    ]
+
+    static func color(for index: Int) -> Color {
+        colors[index % colors.count]
+    }
+}
+
+// MARK: - Data Fetcher
+
+final class HeatmapData: @unchecked Sendable {
+    static let shared = HeatmapData()
+    private let store = EKEventStore()
+
+    private init() {}
+
+    // MARK: - List Color Index
+
+    /// Stable color index for a calendar, based on sorted identifier order.
+    private func listColorIndex(for calendar: EKCalendar, among calendars: [EKCalendar]) -> Int {
+        let sorted = calendars.sorted { $0.calendarIdentifier < $1.calendarIdentifier }
+        return sorted.firstIndex(where: { $0.calendarIdentifier == calendar.calendarIdentifier }) ?? 0
+    }
+
+    // MARK: - Heatmap Fetch
+
+    func fetchDays(last n: Int = 90) async -> [HeatmapDay] {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let startDate = calendar.date(byAdding: .day, value: -n, to: calendar.startOfDay(for: now)) else {
+            return []
+        }
+
+        let predicate = store.predicateForCompletedReminders(
+            withCompletionDateStarting: startDate,
+            ending: now,
+            calendars: nil
+        )
+
+        let reminders: [EKReminder]
+        do {
+            reminders = try await withCheckedThrowingContinuation { continuation in
+                store.fetchReminders(matching: predicate) { result in
+                    continuation.resume(returning: result ?? [])
+                }
+            }
+        } catch {
+            return []
+        }
+
+        let allCalendars = store.calendars(for: .reminder)
+
+        // Group by day with reminder details
+        var dayReminders: [Date: [CompletedReminder]] = [:]
+        for reminder in reminders {
+            guard let completionDate = reminder.completionDate else { continue }
+            let day = calendar.startOfDay(for: completionDate)
+            let completed = CompletedReminder(
+                title: reminder.title ?? "Untitled",
+                listName: reminder.calendar?.title ?? "Unknown",
+                listColorIndex: listColorIndex(for: reminder.calendar, among: allCalendars),
+                completionTime: completionDate
+            )
+            dayReminders[day, default: []].append(completed)
+        }
+
+        // Sort reminders within each day by completion time
+        for (day, items) in dayReminders {
+            dayReminders[day] = items.sorted { $0.completionTime < $1.completionTime }
+        }
+
+        // Fill in zero-days
+        return (0..<n).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: calendar.startOfDay(for: now)) else {
+                return nil
+            }
+            let items = dayReminders[date] ?? []
+            return HeatmapDay(date: date, count: items.count, reminders: items)
+        }
+        .sorted { $0.date < $1.date }
+    }
+
+    func completionsThisWeek() async -> Int {
+        let days = await fetchDays(last: 7)
+        let calendar = Calendar.current
+        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start else { return 0 }
+        return days
+            .filter { $0.date >= weekStart }
+            .reduce(0) { $0 + $1.count }
+    }
+
+    // MARK: - Widget bundle
+
+    func fetchWidgetData(last n: Int = 90) async -> WidgetData {
+        let days = await fetchDays(last: n)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? today
+        let weekCount = days
+            .filter { $0.date >= weekStart }
+            .reduce(0) { $0 + $1.count }
+
+        let todayCount = days.first(where: { calendar.isDate($0.date, inSameDayAs: today) })?.count ?? 0
+
+        // Streak — build a date→count lookup and walk backwards day by day
+        let countByDate: [Date: Int] = Dictionary(
+            days.map { (calendar.startOfDay(for: $0.date), $0.count) },
+            uniquingKeysWith: { _, new in new }
+        )
+        var streak = 0
+        // If today has completions, start counting from today; otherwise from yesterday
+        let startOffset = todayCount > 0 ? 0 : 1
+        for offset in startOffset..<n {
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { break }
+            if (countByDate[date] ?? 0) > 0 {
+                streak += 1
+            } else {
+                break
+            }
+        }
+
+        let bestDayCount = days.max(by: { $0.count < $1.count })?.count ?? 0
+
+        return WidgetData(
+            days: days,
+            weekCount: weekCount,
+            todayCount: todayCount,
+            streak: streak,
+            bestDayCount: bestDayCount
+        )
+    }
+
+    // MARK: - Year Fetch (for app full-year view)
+
+    func fetchYearData(year: Int) async -> [HeatmapDay] {
+        let calendar = Calendar.current
+        let now = Date()
+
+        guard let janFirst = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
+              let decThirtyFirst = calendar.date(from: DateComponents(year: year, month: 12, day: 31)) else {
+            return []
+        }
+
+        let endDate = min(now, calendar.startOfDay(for: decThirtyFirst).addingTimeInterval(86399))
+
+        guard janFirst <= now else { return [] }
+
+        let predicate = store.predicateForCompletedReminders(
+            withCompletionDateStarting: janFirst,
+            ending: endDate,
+            calendars: nil
+        )
+
+        let reminders: [EKReminder]
+        do {
+            reminders = try await withCheckedThrowingContinuation { continuation in
+                store.fetchReminders(matching: predicate) { result in
+                    continuation.resume(returning: result ?? [])
+                }
+            }
+        } catch {
+            return []
+        }
+
+        let allCalendars = store.calendars(for: .reminder)
+
+        var dayReminders: [Date: [CompletedReminder]] = [:]
+        for reminder in reminders {
+            guard let completionDate = reminder.completionDate else { continue }
+            let day = calendar.startOfDay(for: completionDate)
+            let completed = CompletedReminder(
+                title: reminder.title ?? "Untitled",
+                listName: reminder.calendar?.title ?? "Unknown",
+                listColorIndex: listColorIndex(for: reminder.calendar, among: allCalendars),
+                completionTime: completionDate
+            )
+            dayReminders[day, default: []].append(completed)
+        }
+
+        for (day, items) in dayReminders {
+            dayReminders[day] = items.sorted { $0.completionTime < $1.completionTime }
+        }
+
+        // Build all days in the year up to today
+        let lastDay = min(calendar.startOfDay(for: now), calendar.startOfDay(for: decThirtyFirst))
+        let totalDays = calendar.dateComponents([.day], from: janFirst, to: lastDay).day! + 1
+
+        return (0..<totalDays).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: offset, to: janFirst) else { return nil }
+            let key = calendar.startOfDay(for: date)
+            let items = dayReminders[key] ?? []
+            return HeatmapDay(date: key, count: items.count, reminders: items)
+        }
+    }
+
+    /// Returns the earliest year that has any completed reminder, or current year if none.
+    func earliestCompletionYear() async -> Int {
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: Date())
+
+        // Fetch all completed reminders with no date bounds
+        let predicate = store.predicateForCompletedReminders(
+            withCompletionDateStarting: nil,
+            ending: Date(),
+            calendars: nil
+        )
+
+        let reminders: [EKReminder] = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+
+        let earliestYear = reminders.compactMap { $0.completionDate }
+            .map { calendar.component(.year, from: $0) }
+            .min()
+
+        return earliestYear ?? currentYear
+    }
+
+    // MARK: - Tracker Fetch
+
+    func fetchTrackerData(last n: Int = 30) async -> TrackerWidgetData {
+        let calendar = Calendar.current
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        guard let startDate = calendar.date(byAdding: .day, value: -(n - 1), to: today) else {
+            return TrackerWidgetData(summaries: [])
+        }
+
+        let allCalendars = store.calendars(for: .reminder)
+
+        // Fetch completed reminders in range
+        let completedPredicate = store.predicateForCompletedReminders(
+            withCompletionDateStarting: startDate,
+            ending: now,
+            calendars: nil
+        )
+
+        let completedReminders: [EKReminder] = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: completedPredicate) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+
+        // Fetch incomplete reminders to find recurring ones not yet completed
+        let incompletePredicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil,
+            ending: nil,
+            calendars: nil
+        )
+
+        let incompleteReminders: [EKReminder] = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: incompletePredicate) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+
+        // Collect recurring reminder metadata: title → (calendarTitle, colorIndex)
+        var recurringMeta: [String: (calendarTitle: String, colorIndex: Int)] = [:]
+
+        for reminder in completedReminders + incompleteReminders {
+            guard let rules = reminder.recurrenceRules, !rules.isEmpty else { continue }
+            let title = reminder.title ?? "Untitled"
+            if recurringMeta[title] == nil {
+                recurringMeta[title] = (
+                    calendarTitle: reminder.calendar?.title ?? "Unknown",
+                    colorIndex: listColorIndex(for: reminder.calendar, among: allCalendars)
+                )
+            }
+        }
+
+        // Build completion lookup: title → date → [CompletedReminder]
+        var completionsByTitleDate: [String: [Date: [CompletedReminder]]] = [:]
+        for reminder in completedReminders {
+            guard let completionDate = reminder.completionDate else { continue }
+            let title = reminder.title ?? "Untitled"
+            let day = calendar.startOfDay(for: completionDate)
+            let cr = CompletedReminder(
+                title: title,
+                listName: reminder.calendar?.title ?? "Unknown",
+                listColorIndex: listColorIndex(for: reminder.calendar, among: allCalendars),
+                completionTime: completionDate
+            )
+            completionsByTitleDate[title, default: [:]][day, default: []].append(cr)
+        }
+
+        // Build summaries
+        var summaries: [TrackerSummary] = []
+
+        for (title, meta) in recurringMeta {
+            let dateCompletions = completionsByTitleDate[title] ?? [:]
+
+            var trackerDays: [TrackerDay] = []
+            var totalCount = 0
+
+            for offset in (0..<n).reversed() {
+                guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { continue }
+                let day = calendar.startOfDay(for: date)
+                let dayCompletions = dateCompletions[day] ?? []
+                let count = dayCompletions.count
+                totalCount += count
+                trackerDays.append(TrackerDay(
+                    date: day,
+                    count: count,
+                    completions: dayCompletions.sorted { $0.completionTime < $1.completionTime }
+                ))
+            }
+
+            summaries.append(TrackerSummary(
+                reminderTitle: title,
+                calendarTitle: meta.calendarTitle,
+                calendarColorIndex: meta.colorIndex,
+                days: trackerDays,
+                totalCount: totalCount
+            ))
+        }
+
+        // Sort by most completions descending
+        summaries.sort { $0.totalCount > $1.totalCount }
+
+        return TrackerWidgetData(summaries: summaries)
+    }
+}
