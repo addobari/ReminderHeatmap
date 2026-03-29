@@ -39,9 +39,10 @@ struct TrackerDay: Codable, Identifiable, Hashable {
 }
 
 struct TrackerSummary: Codable, Identifiable, Hashable {
-    var id: String { reminderTitle }
+    var id: String { calendarIdentifier + ":" + reminderTitle }
     let reminderTitle: String
     let calendarTitle: String
+    let calendarIdentifier: String
     let calendarColorIndex: Int
     let days: [TrackerDay]
     let totalCount: Int
@@ -105,7 +106,8 @@ final class HeatmapData: @unchecked Sendable {
     // MARK: - List Color Index
 
     /// Stable color index for a calendar, based on sorted identifier order.
-    private func listColorIndex(for calendar: EKCalendar, among calendars: [EKCalendar]) -> Int {
+    private func listColorIndex(for calendar: EKCalendar?, among calendars: [EKCalendar]) -> Int {
+        guard let calendar else { return 0 }
         let sorted = calendars.sorted { $0.calendarIdentifier < $1.calendarIdentifier }
         return sorted.firstIndex(where: { $0.calendarIdentifier == calendar.calendarIdentifier }) ?? 0
     }
@@ -181,6 +183,9 @@ final class HeatmapData: @unchecked Sendable {
 
     func fetchWidgetData(last n: Int = 90) async -> WidgetData {
         let days = await fetchDays(last: n)
+        let hasPermission = EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
+            || EKEventStore.authorizationStatus(for: .reminder) == .authorized
+        let isError = days.isEmpty && !hasPermission
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
 
@@ -215,7 +220,8 @@ final class HeatmapData: @unchecked Sendable {
             weekCount: weekCount,
             todayCount: todayCount,
             streak: streak,
-            bestDayCount: bestDayCount
+            bestDayCount: bestDayCount,
+            isError: isError
         )
     }
 
@@ -345,25 +351,30 @@ final class HeatmapData: @unchecked Sendable {
             }
         }
 
-        // Collect recurring reminder metadata: title → (calendarTitle, colorIndex)
-        var recurringMeta: [String: (calendarTitle: String, colorIndex: Int)] = [:]
+        // Collect recurring reminder metadata: compositeKey → (calendarIdentifier, calendarTitle, colorIndex)
+        var recurringMeta: [String: (calendarIdentifier: String, calendarTitle: String, colorIndex: Int)] = [:]
 
         for reminder in completedReminders + incompleteReminders {
             guard let rules = reminder.recurrenceRules, !rules.isEmpty else { continue }
             let title = reminder.title ?? "Untitled"
-            if recurringMeta[title] == nil {
-                recurringMeta[title] = (
+            let calId = reminder.calendar?.calendarIdentifier ?? ""
+            let compositeKey = calId + ":" + title
+            if recurringMeta[compositeKey] == nil {
+                recurringMeta[compositeKey] = (
+                    calendarIdentifier: calId,
                     calendarTitle: reminder.calendar?.title ?? "Unknown",
                     colorIndex: listColorIndex(for: reminder.calendar, among: allCalendars)
                 )
             }
         }
 
-        // Build completion lookup: title → date → [CompletedReminder]
-        var completionsByTitleDate: [String: [Date: [CompletedReminder]]] = [:]
+        // Build completion lookup: compositeKey → date → [CompletedReminder]
+        var completionsByKeyDate: [String: [Date: [CompletedReminder]]] = [:]
         for reminder in completedReminders {
             guard let completionDate = reminder.completionDate else { continue }
             let title = reminder.title ?? "Untitled"
+            let calId = reminder.calendar?.calendarIdentifier ?? ""
+            let compositeKey = calId + ":" + title
             let day = calendar.startOfDay(for: completionDate)
             let cr = CompletedReminder(
                 title: title,
@@ -371,14 +382,15 @@ final class HeatmapData: @unchecked Sendable {
                 listColorIndex: listColorIndex(for: reminder.calendar, among: allCalendars),
                 completionTime: completionDate
             )
-            completionsByTitleDate[title, default: [:]][day, default: []].append(cr)
+            completionsByKeyDate[compositeKey, default: [:]][day, default: []].append(cr)
         }
 
         // Build summaries
         var summaries: [TrackerSummary] = []
 
-        for (title, meta) in recurringMeta {
-            let dateCompletions = completionsByTitleDate[title] ?? [:]
+        for (compositeKey, meta) in recurringMeta {
+            let title = String(compositeKey.drop(while: { $0 != ":" }).dropFirst())
+            let dateCompletions = completionsByKeyDate[compositeKey] ?? [:]
 
             var trackerDays: [TrackerDay] = []
             var totalCount = 0
@@ -399,6 +411,7 @@ final class HeatmapData: @unchecked Sendable {
             summaries.append(TrackerSummary(
                 reminderTitle: title,
                 calendarTitle: meta.calendarTitle,
+                calendarIdentifier: meta.calendarIdentifier,
                 calendarColorIndex: meta.colorIndex,
                 days: trackerDays,
                 totalCount: totalCount

@@ -29,11 +29,11 @@ struct ReminderHeatmapApp: App {
             }
             .task {
                 await manager.requestAccess()
-                if manager.isAuthorized {
-                    await manager.refresh()
-                }
-                // Force widget to pick up latest code + data
                 WidgetCenter.shared.reloadAllTimelines()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                manager.markNeedsRefresh()
+                Task { await manager.refreshIfNeeded() }
             }
         }
         .handlesExternalEvents(matching: ["*"])

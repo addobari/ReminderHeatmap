@@ -30,9 +30,11 @@ struct ContentView: View {
 
                     // Last updated footer
                     HStack {
-                        Text("Last updated: now")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        if let sync = manager.lastSyncDate {
+                            Text("Last updated: \(sync.formatted(.relative(presentation: .named)))")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                         Spacer()
                     }
                     .padding(.horizontal)
@@ -68,14 +70,14 @@ struct ContentView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
 
-            if manager.todayReminders.isEmpty {
+            if manager.currentDayReminders.isEmpty {
                 Text("Nothing completed yet today")
                     .font(.callout)
                     .foregroundStyle(Color.white.opacity(0.35))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
             } else {
-                ForEach(Array(manager.todayReminders.enumerated()), id: \.element.id) { index, reminder in
+                ForEach(Array(manager.currentDayReminders.enumerated()), id: \.element.id) { index, reminder in
                     if index > 0 {
                         Divider()
                             .background(Color.white.opacity(0.06))
@@ -251,7 +253,12 @@ struct ContentView: View {
                 .multilineTextAlignment(.center)
 
             Button {
-                Task { await manager.requestAccess() }
+                Task {
+                    await manager.requestAccess()
+                    if manager.isAuthorized {
+                        await manager.refresh()
+                    }
+                }
             } label: {
                 Text("Grant Access")
                     .frame(maxWidth: .infinity)
