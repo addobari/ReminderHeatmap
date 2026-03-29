@@ -66,7 +66,7 @@ struct ReminderHeatmapWidget: Widget {
         StaticConfiguration(kind: kind, provider: HeatmapTimelineProvider()) { entry in
             HeatmapWidgetView(entry: entry)
                 .containerBackground(for: .widget) {
-                    Color(red: 0.07, green: 0.07, blue: 0.09)
+                    Color(.windowBackgroundColor)
                 }
         }
         .configurationDisplayName("Reminder Heatmap")

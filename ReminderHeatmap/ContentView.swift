@@ -3,6 +3,8 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var manager: ReminderManager
     @State private var selectedDay: HeatmapDay?
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
 
     var body: some View {
         ScrollView {
@@ -36,6 +38,13 @@ struct ContentView: View {
                                 .foregroundStyle(.tertiary)
                         }
                         Spacer()
+                        Picker("Appearance", selection: $appearanceMode) {
+                            ForEach(AppearanceMode.allCases) { mode in
+                                Text(mode.label).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 200)
                     }
                     .padding(.horizontal)
                 }
@@ -73,14 +82,14 @@ struct ContentView: View {
             if manager.currentDayReminders.isEmpty {
                 Text("Nothing completed yet today")
                     .font(.callout)
-                    .foregroundStyle(Color.white.opacity(0.35))
+                    .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
             } else {
                 ForEach(Array(manager.currentDayReminders.enumerated()), id: \.element.id) { index, reminder in
                     if index > 0 {
                         Divider()
-                            .background(Color.white.opacity(0.06))
+                            .background(.primary.opacity(0.08))
                             .padding(.leading, 14)
                     }
                     HStack(spacing: 8) {
@@ -103,7 +112,7 @@ struct ContentView: View {
                 }
             }
         }
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Heatmap Card
@@ -126,7 +135,7 @@ struct ContentView: View {
 
             // Stats row
             Divider()
-                .background(Color.white.opacity(0.08))
+                .background(.primary.opacity(0.08))
 
             HStack(spacing: 0) {
                 yearStat(title: "Best day", value: yearBestDay)
@@ -135,7 +144,7 @@ struct ContentView: View {
             }
         }
         .padding(14)
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Year Switcher
@@ -178,9 +187,9 @@ struct ContentView: View {
             Text("Less")
                 .font(.system(size: 8))
                 .foregroundStyle(.secondary)
-            ForEach(Array(YearHeatmapGrid.levelColors.enumerated()), id: \.offset) { _, color in
+            ForEach(0..<5, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(color)
+                    .fill(HeatmapTheme.levelColors(for: colorScheme)[i])
                     .frame(width: 9, height: 9)
             }
             Text("More")
@@ -191,7 +200,7 @@ struct ContentView: View {
                 .fill(Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                        .strokeBorder(HeatmapTheme.futureBorder(for: colorScheme), lineWidth: 1)
                 )
                 .frame(width: 9, height: 9)
                 .padding(.leading, 4)
@@ -280,7 +289,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
         }
         .padding(24)
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal)
     }
 }
@@ -303,7 +312,7 @@ private struct StatCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -314,17 +323,11 @@ struct YearHeatmapGrid: View {
     let year: Int
     var onDayTap: ((HeatmapDay) -> Void)?
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private let rows = 7
     private let cellSize: CGFloat = 11
     private let cellSpacing: CGFloat = 3
-
-    static let levelColors: [Color] = [
-        Color(red: 0.13, green: 0.15, blue: 0.18),  // 0: #21262d
-        Color(red: 0.055, green: 0.267, blue: 0.161), // 1-2: #0e4429
-        Color(red: 0.0, green: 0.427, blue: 0.196),   // 3-4: #006d32
-        Color(red: 0.149, green: 0.651, blue: 0.255),  // 5-6: #26a641
-        Color(red: 0.224, green: 0.827, blue: 0.325),   // 7+: #39d353
-    ]
 
     private static let dayLabels = ["", "Mon", "", "Wed", "", "Fri", ""]
 
@@ -333,16 +336,6 @@ struct YearHeatmapGrid: View {
         f.dateFormat = "MMM"
         return f
     }()
-
-    private func cellColor(for count: Int) -> Color {
-        switch count {
-        case 0: return Self.levelColors[0]
-        case 1...2: return Self.levelColors[1]
-        case 3...4: return Self.levelColors[2]
-        case 5...6: return Self.levelColors[3]
-        default: return Self.levelColors[4]
-        }
-    }
 
     // MARK: - Grid computation
 
@@ -471,7 +464,7 @@ struct YearHeatmapGrid: View {
         switch kind {
         case .data(let day):
             RoundedRectangle(cornerRadius: 2)
-                .fill(cellColor(for: day.count))
+                .fill(HeatmapTheme.cellColor(for: day.count, scheme: colorScheme))
                 .frame(width: cellSize, height: cellSize)
                 .onTapGesture { onDayTap?(day) }
         case .future:
@@ -479,7 +472,7 @@ struct YearHeatmapGrid: View {
                 .fill(Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                        .strokeBorder(HeatmapTheme.futureBorder(for: colorScheme), lineWidth: 1)
                 )
                 .frame(width: cellSize, height: cellSize)
         case .invisible:

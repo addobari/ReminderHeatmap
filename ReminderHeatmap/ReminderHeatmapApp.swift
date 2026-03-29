@@ -4,6 +4,7 @@ import WidgetKit
 @main
 struct ReminderHeatmapApp: App {
     @StateObject private var manager = ReminderManager()
+    @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
 
     var body: some Scene {
         WindowGroup {
@@ -23,7 +24,7 @@ struct ReminderHeatmapApp: App {
                     Label("Trackers", systemImage: "repeat")
                 }
             }
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(AppearanceMode(rawValue: appearanceMode)?.colorScheme)
             .onOpenURL { _ in
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }

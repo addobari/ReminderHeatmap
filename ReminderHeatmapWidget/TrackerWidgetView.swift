@@ -98,29 +98,10 @@ struct TrackerWidgetView: View {
         }
     }
 
-    // MARK: - Colors (same green scale as Widget A)
-
-    private var emptyColor: Color {
-        colorScheme == .dark
-            ? Color(red: 0.18, green: 0.20, blue: 0.23)
-            : Color(red: 0.92, green: 0.93, blue: 0.94)
-    }
-
-    private static let greenLevels: [Color] = [
-        Color(red: 0.61, green: 0.91, blue: 0.66),
-        Color(red: 0.25, green: 0.77, blue: 0.39),
-        Color(red: 0.19, green: 0.63, blue: 0.31),
-        Color(red: 0.13, green: 0.43, blue: 0.22),
-    ]
+    // MARK: - Colors (delegated to HeatmapTheme)
 
     private func cellColor(for count: Int) -> Color {
-        switch count {
-        case 0: return emptyColor
-        case 1...2: return Self.greenLevels[0]
-        case 3...4: return Self.greenLevels[1]
-        case 5...6: return Self.greenLevels[2]
-        default: return Self.greenLevels[3]
-        }
+        HeatmapTheme.cellColor(for: count, scheme: colorScheme)
     }
 
     private func truncate(_ text: String, max: Int) -> String {

@@ -4,32 +4,9 @@ import WidgetKit
 struct HeatmapWidgetView: View {
     let entry: HeatmapEntry
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private static let appURL = URL(string: "reminderheatmap://open")!
-
-    // MARK: - Color palette
-
-    private static let inactiveColor = Color.white.opacity(0.09)
-    private static let futureBorder  = Color.white.opacity(0.18)
-
-    private static let levelColors: [Color] = [
-        Color.white.opacity(0.09),                      // 0
-        Color(red: 0.055, green: 0.267, blue: 0.161),   // 1-2: #0e4429
-        Color(red: 0.0,   green: 0.427, blue: 0.196),   // 3-4: #006d32
-        Color(red: 0.149, green: 0.651, blue: 0.255),    // 5-6: #26a641
-        Color(red: 0.224, green: 0.827, blue: 0.325),    // 7+:  #39d353
-    ]
-
-    private static let accentGreen = Color(red: 0.224, green: 0.827, blue: 0.325)
-
-    private func cellColor(for count: Int) -> Color {
-        switch count {
-        case 0:    return Self.levelColors[0]
-        case 1...2: return Self.levelColors[1]
-        case 3...4: return Self.levelColors[2]
-        case 5...6: return Self.levelColors[3]
-        default:   return Self.levelColors[4]
-        }
-    }
 
     // MARK: - Display state
 
@@ -128,7 +105,7 @@ struct HeatmapWidgetView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("REMINDERS")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(Color.white.opacity(0.5))
+                .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
                 .lineLimit(1)
                 .padding(.top, 4)
 
@@ -136,13 +113,13 @@ struct HeatmapWidgetView: View {
 
             Text("\(entry.weekCount)")
                 .font(.system(size: 34, weight: .bold, design: .rounded))
-                .foregroundStyle(Self.accentGreen)
+                .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme))
                 .monospacedDigit()
                 .minimumScaleFactor(0.5)
                 .lineLimit(1)
             Text("this week")
                 .font(.system(size: 9))
-                .foregroundStyle(Color.white.opacity(0.4))
+                .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
                 .padding(.bottom, 6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -238,7 +215,7 @@ struct HeatmapWidgetView: View {
                     ForEach(info.monthLabels, id: \.1) { label, col in
                         Text(label)
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(Color.white.opacity(0.4))
+                            .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
                             .offset(x: dayLabelWidth + CGFloat(col) * (cellSize + gridSpacing))
                     }
                 }
@@ -250,7 +227,7 @@ struct HeatmapWidgetView: View {
                         ForEach(0..<Self.rows, id: \.self) { row in
                             Text(Self.dayLabels[row])
                                 .font(.system(size: 8, weight: .medium))
-                                .foregroundStyle(Color.white.opacity(0.4))
+                                .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
                                 .frame(width: dayLabelWidth - 2, height: cellSize, alignment: .trailing)
                         }
                     }
@@ -275,14 +252,14 @@ struct HeatmapWidgetView: View {
         switch kind {
         case .data(let count):
             RoundedRectangle(cornerRadius: 2)
-                .fill(cellColor(for: count))
+                .fill(HeatmapTheme.cellColor(for: count, scheme: colorScheme))
                 .frame(width: size, height: size)
         case .future:
             RoundedRectangle(cornerRadius: 2)
                 .fill(Color.clear)
                 .overlay(
                     RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(Self.futureBorder, lineWidth: 1)
+                        .strokeBorder(HeatmapTheme.futureBorder(for: colorScheme), lineWidth: 1)
                 )
                 .frame(width: size, height: size)
         }
@@ -295,37 +272,37 @@ struct HeatmapWidgetView: View {
             HStack(spacing: 2) {
                 Text("Less")
                     .font(.system(size: 7))
-                    .foregroundStyle(Color.white.opacity(0.35))
+                    .foregroundStyle(HeatmapTheme.faintText(for: colorScheme))
 
-                ForEach(0..<Self.levelColors.count, id: \.self) { i in
+                ForEach(0..<HeatmapTheme.levelColors(for: colorScheme).count, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 1.5)
-                        .fill(Self.levelColors[i])
+                        .fill(HeatmapTheme.levelColors(for: colorScheme)[i])
                         .frame(width: 7, height: 7)
                 }
 
                 Text("More")
                     .font(.system(size: 7))
-                    .foregroundStyle(Color.white.opacity(0.35))
+                    .foregroundStyle(HeatmapTheme.faintText(for: colorScheme))
 
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: 1.5)
-                            .strokeBorder(Self.futureBorder, lineWidth: 1)
+                            .strokeBorder(HeatmapTheme.futureBorder(for: colorScheme), lineWidth: 1)
                     )
                     .frame(width: 7, height: 7)
                     .padding(.leading, 2)
 
                 Text("Future")
                     .font(.system(size: 7))
-                    .foregroundStyle(Color.white.opacity(0.35))
+                    .foregroundStyle(HeatmapTheme.faintText(for: colorScheme))
             }
 
             Spacer()
 
             Text("Last 3 months")
                 .font(.system(size: 8))
-                .foregroundStyle(displayState == .stale ? .orange : Color.white.opacity(0.35))
+                .foregroundStyle(displayState == .stale ? .orange : HeatmapTheme.faintText(for: colorScheme))
         }
         .padding(.horizontal, 4)
     }

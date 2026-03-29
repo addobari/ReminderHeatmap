@@ -35,23 +35,10 @@ struct TrackersView: View {
 private struct TrackerCard: View {
     let summary: TrackerSummary
     @State private var selectedDay: TrackerDay?
-
-    private static let levelColors: [Color] = [
-        Color.white.opacity(0.07),                      // 0
-        Color(red: 0.055, green: 0.267, blue: 0.161),   // 1-2
-        Color(red: 0.0,   green: 0.427, blue: 0.196),   // 3-4
-        Color(red: 0.149, green: 0.651, blue: 0.255),    // 5-6
-        Color(red: 0.224, green: 0.827, blue: 0.325),    // 7+
-    ]
+    @Environment(\.colorScheme) private var colorScheme
 
     private func cellColor(for count: Int) -> Color {
-        switch count {
-        case 0:    return Self.levelColors[0]
-        case 1...2: return Self.levelColors[1]
-        case 3...4: return Self.levelColors[2]
-        case 5...6: return Self.levelColors[3]
-        default:   return Self.levelColors[4]
-        }
+        HeatmapTheme.cellColor(for: count, scheme: colorScheme)
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -86,7 +73,7 @@ private struct TrackerCard: View {
                 Spacer()
                 Text("\(summary.totalCount)")
                     .font(.title3.bold().monospacedDigit())
-                    .foregroundStyle(Color(red: 0.224, green: 0.827, blue: 0.325))
+                    .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme))
                 Text("completions")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -95,7 +82,6 @@ private struct TrackerCard: View {
             // 30-day heatmap grid
             TrackerHeatmapGrid(
                 days: summary.days,
-                cellColor: cellColor,
                 selectedDay: $selectedDay
             )
 
@@ -105,14 +91,14 @@ private struct TrackerCard: View {
             }
         }
         .padding(14)
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 
     @ViewBuilder
     private func dayDetail(_ day: TrackerDay) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Divider()
-                .background(Color.white.opacity(0.08))
+                .background(.primary.opacity(0.08))
 
             HStack {
                 Text(Self.dateFormatter.string(from: day.date))
@@ -147,8 +133,8 @@ private struct TrackerCard: View {
 
 private struct TrackerHeatmapGrid: View {
     let days: [TrackerDay]
-    let cellColor: (Int) -> Color
     @Binding var selectedDay: TrackerDay?
+    @Environment(\.colorScheme) private var colorScheme
 
     private let rows = 7
     private let cellSize: CGFloat = 14
@@ -250,12 +236,12 @@ private struct TrackerHeatmapGrid: View {
                                 if let day = info.columns[col][row] {
                                     let isSelected = selectedDay?.date == day.date
                                     RoundedRectangle(cornerRadius: 2)
-                                        .fill(cellColor(day.count))
+                                        .fill(HeatmapTheme.cellColor(for: day.count, scheme: colorScheme))
                                         .frame(width: cellSize, height: cellSize)
                                         .overlay(
                                             isSelected
                                                 ? RoundedRectangle(cornerRadius: 2)
-                                                    .strokeBorder(Color.white.opacity(0.6), lineWidth: 1.5)
+                                                    .strokeBorder(.primary.opacity(0.6), lineWidth: 1.5)
                                                 : nil
                                         )
                                         .onTapGesture {
