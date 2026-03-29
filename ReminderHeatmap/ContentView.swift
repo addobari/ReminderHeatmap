@@ -38,13 +38,15 @@ struct ContentView: View {
                                 .foregroundStyle(.tertiary)
                         }
                         Spacer()
-                        Picker("Appearance", selection: $appearanceMode) {
+                        Picker(selection: $appearanceMode) {
                             ForEach(AppearanceMode.allCases) { mode in
                                 Text(mode.label).tag(mode.rawValue)
                             }
+                        } label: {
+                            EmptyView()
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 200)
+                        .frame(width: 180)
                     }
                     .padding(.horizontal)
                 }
