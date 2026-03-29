@@ -24,7 +24,7 @@ struct ReminderHeatmapApp: App {
                     Label("Trackers", systemImage: "repeat")
                 }
             }
-            .preferredColorScheme(AppearanceMode(rawValue: appearanceMode)?.colorScheme)
+            .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .system).colorScheme)
             .onOpenURL { _ in
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }
@@ -35,6 +35,9 @@ struct ReminderHeatmapApp: App {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 manager.markNeedsRefresh()
                 Task { await manager.refreshIfNeeded() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+                // Trigger re-evaluation when system appearance changes
             }
         }
         .handlesExternalEvents(matching: ["*"])
