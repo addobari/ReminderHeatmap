@@ -38,15 +38,6 @@ struct ContentView: View {
                                 .foregroundStyle(.tertiary)
                         }
                         Spacer()
-                        Picker(selection: $appearanceMode) {
-                            ForEach(AppearanceMode.allCases) { mode in
-                                Text(mode.label).tag(mode.rawValue)
-                            }
-                        } label: {
-                            EmptyView()
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 180)
                     }
                     .padding(.horizontal)
                 }
@@ -54,6 +45,19 @@ struct ContentView: View {
             .padding(.vertical)
         }
         .navigationTitle("Reminder Heatmap")
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Picker(selection: $appearanceMode) {
+                    ForEach(AppearanceMode.allCases) { mode in
+                        Text(mode.label).tag(mode.rawValue)
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+            }
+        }
         .navigationDestination(item: $selectedDay) { day in
             DayDetailView(day: day)
         }
@@ -88,7 +92,8 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
             } else {
-                ForEach(Array(manager.currentDayReminders.enumerated()), id: \.element.id) { index, reminder in
+                let visible = Array(manager.currentDayReminders.prefix(8))
+                ForEach(Array(visible.enumerated()), id: \.element.id) { index, reminder in
                     if index > 0 {
                         Divider()
                             .background(.primary.opacity(0.08))
@@ -111,6 +116,13 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
+                }
+                if manager.currentDayReminders.count > 8 {
+                    Text("…and \(manager.currentDayReminders.count - 8) more")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
                 }
             }
         }
@@ -422,37 +434,39 @@ struct YearHeatmapGrid: View {
         let info = gridInfo
         let labelColumnWidth: CGFloat = 22
 
-        VStack(alignment: .leading, spacing: 2) {
-            // Month labels
-            ZStack(alignment: .leading) {
-                Color.clear.frame(height: 14)
-                ForEach(info.monthLabels, id: \.1) { label, col in
-                    Text(label)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .offset(x: CGFloat(col) * (cellSize + cellSpacing) + labelColumnWidth)
-                }
-            }
-            .frame(width: CGFloat(info.columns) * (cellSize + cellSpacing) + labelColumnWidth, alignment: .leading)
-
-            // Grid with day labels
-            HStack(alignment: .top, spacing: 2) {
-                // Day labels column
-                VStack(alignment: .trailing, spacing: cellSpacing) {
-                    ForEach(0..<rows, id: \.self) { row in
-                        Text(Self.dayLabels[row])
-                            .font(.system(size: 8, weight: .medium))
+        ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 2) {
+                // Month labels
+                ZStack(alignment: .leading) {
+                    Color.clear.frame(height: 14)
+                    ForEach(info.monthLabels, id: \.1) { label, col in
+                        Text(label)
+                            .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
-                            .frame(width: labelColumnWidth - 2, height: cellSize, alignment: .trailing)
+                            .offset(x: CGFloat(col) * (cellSize + cellSpacing) + labelColumnWidth)
                     }
                 }
+                .frame(width: CGFloat(info.columns) * (cellSize + cellSpacing) + labelColumnWidth, alignment: .leading)
 
-                // Cells
-                HStack(spacing: cellSpacing) {
-                    ForEach(0..<info.columns, id: \.self) { col in
-                        VStack(spacing: cellSpacing) {
-                            ForEach(0..<rows, id: \.self) { row in
-                                cellView(for: info.cells[col][row])
+                // Grid with day labels
+                HStack(alignment: .top, spacing: 2) {
+                    // Day labels column
+                    VStack(alignment: .trailing, spacing: cellSpacing) {
+                        ForEach(0..<rows, id: \.self) { row in
+                            Text(Self.dayLabels[row])
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: labelColumnWidth - 2, height: cellSize, alignment: .trailing)
+                        }
+                    }
+
+                    // Cells
+                    HStack(spacing: cellSpacing) {
+                        ForEach(0..<info.columns, id: \.self) { col in
+                            VStack(spacing: cellSpacing) {
+                                ForEach(0..<rows, id: \.self) { row in
+                                    cellView(for: info.cells[col][row])
+                                }
                             }
                         }
                     }
@@ -465,10 +479,12 @@ struct YearHeatmapGrid: View {
     private func cellView(for kind: CellKind) -> some View {
         switch kind {
         case .data(let day):
-            RoundedRectangle(cornerRadius: 2)
-                .fill(HeatmapTheme.cellColor(for: day.count, scheme: colorScheme))
-                .frame(width: cellSize, height: cellSize)
-                .onTapGesture { onDayTap?(day) }
+            HeatmapCellView(
+                day: day,
+                size: cellSize,
+                color: HeatmapTheme.cellColor(for: day.count, scheme: colorScheme),
+                onTap: { onDayTap?(day) }
+            )
         case .future:
             RoundedRectangle(cornerRadius: 2)
                 .fill(Color.clear)
@@ -481,5 +497,59 @@ struct YearHeatmapGrid: View {
             Color.clear
                 .frame(width: cellSize, height: cellSize)
         }
+    }
+}
+
+// MARK: - Heatmap Cell with Hover Tooltip
+
+private struct HeatmapCellView: View {
+    let day: HeatmapDay
+    let size: CGFloat
+    let color: Color
+    var onTap: (() -> Void)?
+
+    @State private var showTooltip = false
+    @State private var hoverTask: Task<Void, Never>?
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE, MMM d"
+        return f
+    }()
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(color)
+            .frame(width: size, height: size)
+            .onHover { hovering in
+                hoverTask?.cancel()
+                if hovering {
+                    hoverTask = Task {
+                        try? await Task.sleep(nanoseconds: 80_000_000)
+                        guard !Task.isCancelled else { return }
+                        showTooltip = true
+                    }
+                } else {
+                    showTooltip = false
+                }
+            }
+            .onTapGesture { onTap?() }
+            .popover(isPresented: $showTooltip) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Self.dateFormatter.string(from: day.date))
+                        .font(.caption.bold())
+                    if day.count == 0 {
+                        Text("No completions")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        let isToday = Calendar.current.isDateInToday(day.date)
+                        Text(isToday ? "\(day.count) completed so far today" : "\(day.count) completed")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+            }
     }
 }

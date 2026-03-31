@@ -85,6 +85,14 @@ private struct TrackerCard: View {
                 selectedDay: $selectedDay
             )
 
+            if summary.totalCount == 0 {
+                Text("No completions in the last 30 days")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+
             // Inline day detail
             if let day = selectedDay {
                 dayDetail(day)
