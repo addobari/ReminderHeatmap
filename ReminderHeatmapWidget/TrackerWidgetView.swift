@@ -78,9 +78,9 @@ struct TrackerWidgetView: View {
     private func trackerRow(_ summary: TrackerSummary) -> some View {
         HStack(spacing: 6) {
             Text(summary.reminderTitle)
-                .font(.system(size: 10))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.primary)
-                .frame(width: 72, alignment: .leading)
+                .frame(width: 76, alignment: .leading)
                 .lineLimit(1)
 
             HStack(spacing: 1.5) {
