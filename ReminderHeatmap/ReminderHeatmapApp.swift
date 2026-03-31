@@ -24,6 +24,7 @@ struct ReminderHeatmapApp: App {
                     Label("Trackers", systemImage: "repeat")
                 }
             }
+            .frame(minWidth: 520, minHeight: 400)
             .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .system).colorScheme)
             .onOpenURL { _ in
                 NSApplication.shared.activate(ignoringOtherApps: true)

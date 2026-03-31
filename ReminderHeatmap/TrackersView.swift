@@ -93,6 +93,24 @@ private struct TrackerCard: View {
                     .padding(.vertical, 4)
             }
 
+            if summary.totalCount > 0 {
+                HStack(spacing: 16) {
+                    let activeDays = summary.days.filter { $0.count > 0 }.count
+                    Label("\(activeDays)/\(summary.days.count) days", systemImage: "calendar")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    let streak = computeStreak(summary.days)
+                    if streak > 0 {
+                        Label("\(streak)d streak", systemImage: "flame")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    
+                    Spacer()
+                }
+            }
+
             // Inline day detail
             if let day = selectedDay {
                 dayDetail(day)
@@ -100,6 +118,19 @@ private struct TrackerCard: View {
         }
         .padding(14)
         .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func computeStreak(_ days: [TrackerDay]) -> Int {
+        // Walk backwards from the most recent day
+        var streak = 0
+        for day in days.reversed() {
+            if day.count > 0 {
+                streak += 1
+            } else {
+                break
+            }
+        }
+        return streak
     }
 
     @ViewBuilder

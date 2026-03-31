@@ -58,8 +58,9 @@ struct ContentView: View {
                 .frame(width: 180)
             }
         }
-        .navigationDestination(item: $selectedDay) { day in
+        .sheet(item: $selectedDay) { day in
             DayDetailView(day: day)
+                .frame(minWidth: 360, minHeight: 400)
         }
     }
 
@@ -315,6 +316,8 @@ private struct StatCard: View {
     let value: String
     var accent: Bool = false
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         VStack(spacing: 4) {
             Text(value)
@@ -326,7 +329,7 @@ private struct StatCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

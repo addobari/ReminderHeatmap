@@ -3,6 +3,8 @@ import SwiftUI
 struct DayDetailView: View {
     let day: HeatmapDay
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .full
@@ -70,7 +72,7 @@ struct DayDetailView: View {
                             }
                         }
                         .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
                     }
                 }
             }

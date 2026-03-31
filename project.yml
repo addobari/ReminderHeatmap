@@ -26,6 +26,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.addobari.reminderheatmap
         GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_NSRemindersUsageDescription: "ReminderHeatmap needs access to your reminders to display your completion history."
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         CODE_SIGN_STYLE: Automatic
