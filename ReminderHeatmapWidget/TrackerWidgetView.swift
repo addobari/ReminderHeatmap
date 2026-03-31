@@ -42,7 +42,7 @@ struct TrackerWidgetView: View {
                 .font(.title2)
                 .foregroundStyle(.secondary)
             Text("No recurring reminders found.\nSet a reminder to repeat daily\nto track it here.")
-                .font(.caption2)
+                .font(.system(size: 11))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
         }
@@ -52,60 +52,55 @@ struct TrackerWidgetView: View {
     // MARK: - Medium
 
     private var mediumView: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text("Trackers")
-                    .font(.caption.bold())
+                    .font(.callout.bold())
                     .foregroundStyle(.primary)
                 Spacer()
-                Text("last 30d")
-                    .font(.caption2)
+                Text("Last 30 days")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            let visible = Array(entry.summaries.prefix(5))
+            let visible = Array(entry.summaries.prefix(4))
             ForEach(visible) { summary in
                 trackerRow(summary)
             }
 
             Spacer(minLength: 0)
         }
-        .padding(4)
+        .padding(10)
     }
 
     // MARK: - Row
 
     private func trackerRow(_ summary: TrackerSummary) -> some View {
-        HStack(spacing: 4) {
-            Text(truncate(summary.reminderTitle, max: 20))
-                .font(.system(size: 7))
+        HStack(spacing: 6) {
+            Text(summary.reminderTitle)
+                .font(.system(size: 10))
                 .foregroundStyle(.primary)
-                .frame(width: 62, alignment: .leading)
+                .frame(width: 72, alignment: .leading)
                 .lineLimit(1)
 
-            HStack(spacing: 1) {
+            HStack(spacing: 1.5) {
                 ForEach(summary.days) { day in
-                    RoundedRectangle(cornerRadius: 1)
+                    RoundedRectangle(cornerRadius: 1.5)
                         .fill(cellColor(for: day.count))
-                        .frame(width: 4, height: 4)
+                        .frame(width: 6, height: 6)
                 }
             }
 
-            Text("\(summary.totalCount)×")
-                .font(.system(size: 7, weight: .medium).monospacedDigit())
+            Text("\(summary.totalCount)")
+                .font(.system(size: 10, weight: .bold).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 18, alignment: .trailing)
+                .frame(width: 24, alignment: .trailing)
         }
     }
 
-    // MARK: - Colors (delegated to HeatmapTheme)
+    // MARK: - Colors
 
     private func cellColor(for count: Int) -> Color {
         HeatmapTheme.cellColor(for: count, scheme: colorScheme)
-    }
-
-    private func truncate(_ text: String, max: Int) -> String {
-        if text.count <= max { return text }
-        return String(text.prefix(max - 1)) + "…"
     }
 }

@@ -63,17 +63,19 @@ struct HeatmapWidgetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Empty state (shows grid skeleton + message)
+    // MARK: - Empty state
 
     private var emptyGridView: some View {
-        VStack(spacing: 4) {
-            heatmapView
-            Spacer(minLength: 0)
-            Text("Complete your first reminder to get started")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
+        VStack(spacing: 8) {
+            Image(systemName: "square.grid.3x3")
+                .font(.title2)
+                .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme).opacity(0.5))
+            Text("Complete your first reminder\nto get started")
+                .font(.system(size: 11))
                 .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Main heatmap layout
@@ -95,8 +97,8 @@ struct HeatmapWidgetView: View {
             // FOOTER
             footer
         }
-        .padding(.horizontal, 2)
-        .padding(.vertical, 2)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Left column
@@ -104,8 +106,8 @@ struct HeatmapWidgetView: View {
     private var leftColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("REMINDERS")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5))
                 .lineLimit(1)
                 .padding(.top, 4)
 
@@ -120,10 +122,11 @@ struct HeatmapWidgetView: View {
             Text("this week")
                 .font(.system(size: 9))
                 .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
+                .padding(.top, 2)
                 .padding(.bottom, 6)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 4)
+        .padding(.leading, 8)
     }
 
     // MARK: - Right column (grid)
@@ -226,7 +229,7 @@ struct HeatmapWidgetView: View {
                     VStack(spacing: gridSpacing) {
                         ForEach(0..<Self.rows, id: \.self) { row in
                             Text(Self.dayLabels[row])
-                                .font(.system(size: 8, weight: .medium))
+                                .font(.system(size: 9, weight: .medium))
                                 .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
                                 .frame(width: dayLabelWidth - 2, height: cellSize, alignment: .trailing)
                         }
@@ -269,7 +272,7 @@ struct HeatmapWidgetView: View {
 
     private var footer: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 2) {
+            HStack(spacing: 3) {
                 Text("Less")
                     .font(.system(size: 7))
                     .foregroundStyle(HeatmapTheme.faintText(for: colorScheme))
@@ -277,7 +280,7 @@ struct HeatmapWidgetView: View {
                 ForEach(0..<HeatmapTheme.levelColors(for: colorScheme).count, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(HeatmapTheme.levelColors(for: colorScheme)[i])
-                        .frame(width: 7, height: 7)
+                        .frame(width: 8, height: 8)
                 }
 
                 Text("More")
@@ -290,7 +293,7 @@ struct HeatmapWidgetView: View {
                         RoundedRectangle(cornerRadius: 1.5)
                             .strokeBorder(HeatmapTheme.futureBorder(for: colorScheme), lineWidth: 1)
                     )
-                    .frame(width: 7, height: 7)
+                    .frame(width: 8, height: 8)
                     .padding(.leading, 2)
 
                 Text("Future")
@@ -300,10 +303,17 @@ struct HeatmapWidgetView: View {
 
             Spacer()
 
-            Text("Last 3 months")
-                .font(.system(size: 8))
-                .foregroundStyle(displayState == .stale ? .orange : HeatmapTheme.faintText(for: colorScheme))
+            HStack(spacing: 3) {
+                Text("Last 3 months")
+                    .font(.system(size: 8))
+                    .foregroundStyle(HeatmapTheme.faintText(for: colorScheme))
+                if displayState == .stale {
+                    Text("· Stale")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(.orange)
+                }
+            }
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 6)
     }
 }
