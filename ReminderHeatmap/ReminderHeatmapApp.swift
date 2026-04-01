@@ -1,10 +1,16 @@
 import SwiftUI
+import Sparkle
 import WidgetKit
 
 @main
 struct ReminderHeatmapApp: App {
     @StateObject private var manager = ReminderManager()
     @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     var body: some Scene {
         WindowGroup {
@@ -42,5 +48,10 @@ struct ReminderHeatmapApp: App {
             }
         }
         .handlesExternalEvents(matching: ["*"])
+        .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
+        }
     }
 }

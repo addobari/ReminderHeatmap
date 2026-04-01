@@ -4,6 +4,12 @@
 <dict>
 	<key>NSRemindersUsageDescription</key>
 	<string>ReminderHeatmap needs access to your reminders to display your completion history.</string>
+	<key>SUPublicEDKey</key>
+	<string>/DaQpPYJgc/6et7QqwoN7KqNJuYC3TVfCU0NwSV23p0=</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/addobari/ReminderHeatmap/main/appcast.xml</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

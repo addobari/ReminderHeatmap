@@ -1,0 +1,28 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+    <channel>
+        <title>Plotted</title>
+        <link>https://github.com/addobari/ReminderHeatmap</link>
+        <description>Most recent updates for Plotted</description>
+        <language>en</language>
+        <item>
+            <title>Version 1.2.0</title>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>What's New in Plotted 1.2.0</h2>
+                <ul>
+                    <li>Automatic updates via Sparkle — the app now checks for updates and installs them seamlessly</li>
+                    <li>"Check for Updates…" menu item under the Plotted menu</li>
+                </ul>
+            ]]></description>
+            <pubDate>Wed, 02 Apr 2026 00:00:00 +0000</pubDate>
+            <enclosure
+                url="https://github.com/addobari/ReminderHeatmap/releases/download/v1.2.0/Plotted-v1.2.0.zip"
+                sparkle:edSignature="oLohY3aY6Y6YhtSEsP4yEmE7ZaTxZbQiGX07EYnsqkLhIyJ9s7hgbwhR9jb0kLguzojCHwjoxO3F/2hYodBQAA=="
+                length="1797042"
+                type="application/octet-stream"/>
+        </item>
+    </channel>
+</rss>

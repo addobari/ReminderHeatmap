@@ -5,6 +5,11 @@ options:
     macOS: "14.0"
   generateEmptyDirectories: true
 
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -28,11 +33,13 @@ targets:
         INFOPLIST_KEY_NSRemindersUsageDescription: "ReminderHeatmap needs access to your reminders to display your completion history."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_NAME: Plotted
-        MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.2.0"
+        CURRENT_PROJECT_VERSION: "2"
         CODE_SIGN_STYLE: Automatic
     dependencies:
       - target: ReminderHeatmapWidgetExtension
+      - package: Sparkle
+        product: Sparkle
 
   ReminderHeatmapWidgetExtension:
     type: app-extension
@@ -48,7 +55,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.addobari.reminderheatmap.widget
         GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_NSRemindersUsageDescription: "ReminderHeatmap needs access to your reminders to display your completion history."
-        MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.2.0"
+        CURRENT_PROJECT_VERSION: "2"
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
         CODE_SIGN_STYLE: Automatic
