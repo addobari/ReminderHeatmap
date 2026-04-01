@@ -17,16 +17,29 @@ struct DayDetailView: View {
         return f
     }()
 
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Header
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(Self.dateFormatter.string(from: day.date))
-                        .font(.title3.bold())
-                    Text("\(day.count) completed")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                // Header with close button
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Self.dateFormatter.string(from: day.date))
+                            .font(.title3.bold())
+                        Text("\(day.count) completed")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 if day.reminders.isEmpty {

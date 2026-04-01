@@ -105,7 +105,7 @@ struct HeatmapWidgetView: View {
 
     private var leftColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("REMINDERS")
+            Text("PLOTTED")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5))
                 .lineLimit(1)

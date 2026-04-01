@@ -69,7 +69,7 @@ struct ReminderHeatmapWidget: Widget {
                     Color(.windowBackgroundColor)
                 }
         }
-        .configurationDisplayName("Reminder Heatmap")
+        .configurationDisplayName("Plotted")
         .description("See your completed reminders as a contribution heatmap.")
         .supportedFamilies([.systemMedium])
     }

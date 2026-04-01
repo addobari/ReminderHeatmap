@@ -44,7 +44,7 @@ struct ContentView: View {
             }
             .padding(.vertical)
         }
-        .navigationTitle("Reminder Heatmap")
+        .navigationTitle("Plotted")
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Picker(selection: $appearanceMode) {
@@ -271,7 +271,7 @@ struct ContentView: View {
             Text("Reminders Access Needed")
                 .font(.headline)
 
-            Text("ReminderHeatmap reads your completed reminders to build the heatmap. No data leaves your Mac.")
+            Text("Plotted reads your completed reminders to build the heatmap. No data leaves your Mac.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
