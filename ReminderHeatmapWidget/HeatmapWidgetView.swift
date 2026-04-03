@@ -152,9 +152,8 @@ struct HeatmapWidgetView: View {
         let today = cal.startOfDay(for: Date())
 
         let todayWeekday = cal.component(.weekday, from: today) // 1=Sun
-        let daysFromMonday = (todayWeekday + 5) % 7
-        let thisMonday = cal.date(byAdding: .day, value: -daysFromMonday, to: today)!
-        let gridStart = cal.date(byAdding: .weekOfYear, value: -12, to: thisMonday)!
+        let thisSunday = cal.date(byAdding: .day, value: -(todayWeekday - 1), to: today)!
+        let gridStart = cal.date(byAdding: .weekOfYear, value: -12, to: thisSunday)!
 
         let lookup: [Date: Int] = Dictionary(
             entry.days.map { (cal.startOfDay(for: $0.date), $0.count) },

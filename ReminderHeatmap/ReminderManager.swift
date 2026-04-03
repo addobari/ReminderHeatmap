@@ -18,8 +18,29 @@ final class ReminderManager: ObservableObject {
     @Published var needsRefresh = true
 
     private let store = EKEventStore()
+    private var storeChangedObserver: Any?
 
     var currentYear: Int { Calendar.current.component(.year, from: Date()) }
+
+    init() {
+        storeChangedObserver = NotificationCenter.default.addObserver(
+            forName: .EKEventStoreChanged,
+            object: store,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.markNeedsRefresh()
+                await HeatmapData.shared.invalidateCache()
+            }
+        }
+    }
+
+    deinit {
+        if let observer = storeChangedObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     var todayCount: Int { currentDayReminders.count }
 
@@ -83,7 +104,14 @@ final class ReminderManager: ObservableObject {
 
         // Year grid data for the selected year
         let targetYear = selectedYear
-        let fetchedYearDays = await HeatmapData.shared.fetchYearData(year: targetYear)
+        let fetchedYearDays: [HeatmapDay]
+        if targetYear == currentYear {
+            // Reuse rolling 90-day data: it covers recent days; fetch the full year
+            // but the rolling data already warmed the cache for overlapping dates
+            fetchedYearDays = await HeatmapData.shared.fetchYearData(year: targetYear)
+        } else {
+            fetchedYearDays = await HeatmapData.shared.fetchYearData(year: targetYear)
+        }
         guard selectedYear == targetYear else { return }
         yearDays = fetchedYearDays
 
@@ -91,13 +119,15 @@ final class ReminderManager: ObservableObject {
             days = fetchedYearDays
         }
 
+        // Update UI first, then fetch secondary data
+        lastSyncDate = Date()
+        needsRefresh = false
+
+        // Deferred: earliest year and tracker data (non-blocking for main UI)
         earliestYear = await HeatmapData.shared.earliestCompletionYear()
 
         let trackerData = await HeatmapData.shared.fetchTrackerData(last: 30)
         trackerSummaries = trackerData.summaries
-
-        lastSyncDate = Date()
-        needsRefresh = false
     }
 
     func switchYear(to year: Int) async {

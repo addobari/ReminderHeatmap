@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - Models
 
 struct CompletedReminder: Codable, Identifiable, Hashable {
-    var id: String { title + listName + completionTime.timeIntervalSince1970.description }
+    let id = UUID()
     let title: String
     let listName: String
     let listColorIndex: Int
@@ -97,19 +97,30 @@ enum ListColorPalette {
 
 // MARK: - Data Fetcher
 
-final class HeatmapData: @unchecked Sendable {
+actor HeatmapData {
     static let shared = HeatmapData()
     private let store = EKEventStore()
+    private var cachedEarliestYear: Int?
 
     private init() {}
 
-    // MARK: - List Color Index
+    // MARK: - TrackerKey
 
-    /// Stable color index for a calendar, based on sorted identifier order.
-    private func listColorIndex(for calendar: EKCalendar?, among calendars: [EKCalendar]) -> Int {
-        guard let calendar else { return 0 }
+    private struct TrackerKey: Hashable {
+        let calendarIdentifier: String
+        let title: String
+    }
+
+    // MARK: - List Color Index Map
+
+    /// Builds a dictionary mapping calendar identifiers to stable color indices.
+    private func buildColorIndexMap(from calendars: [EKCalendar]) -> [String: Int] {
         let sorted = calendars.sorted { $0.calendarIdentifier < $1.calendarIdentifier }
-        return sorted.firstIndex(where: { $0.calendarIdentifier == calendar.calendarIdentifier }) ?? 0
+        var map: [String: Int] = [:]
+        for (index, cal) in sorted.enumerated() {
+            map[cal.calendarIdentifier] = index
+        }
+        return map
     }
 
     // MARK: - Heatmap Fetch
@@ -139,6 +150,7 @@ final class HeatmapData: @unchecked Sendable {
         }
 
         let allCalendars = store.calendars(for: .reminder)
+        let colorMap = buildColorIndexMap(from: allCalendars)
 
         // Group by day with reminder details
         var dayReminders: [Date: [CompletedReminder]] = [:]
@@ -148,7 +160,7 @@ final class HeatmapData: @unchecked Sendable {
             let completed = CompletedReminder(
                 title: reminder.title ?? "Untitled",
                 listName: reminder.calendar?.title ?? "Unknown",
-                listColorIndex: listColorIndex(for: reminder.calendar, among: allCalendars),
+                listColorIndex: colorMap[reminder.calendar?.calendarIdentifier ?? ""] ?? 0,
                 completionTime: completionDate
             )
             dayReminders[day, default: []].append(completed)
@@ -258,6 +270,7 @@ final class HeatmapData: @unchecked Sendable {
         }
 
         let allCalendars = store.calendars(for: .reminder)
+        let colorMap = buildColorIndexMap(from: allCalendars)
 
         var dayReminders: [Date: [CompletedReminder]] = [:]
         for reminder in reminders {
@@ -266,7 +279,7 @@ final class HeatmapData: @unchecked Sendable {
             let completed = CompletedReminder(
                 title: reminder.title ?? "Untitled",
                 listName: reminder.calendar?.title ?? "Unknown",
-                listColorIndex: listColorIndex(for: reminder.calendar, among: allCalendars),
+                listColorIndex: colorMap[reminder.calendar?.calendarIdentifier ?? ""] ?? 0,
                 completionTime: completionDate
             )
             dayReminders[day, default: []].append(completed)
@@ -290,6 +303,10 @@ final class HeatmapData: @unchecked Sendable {
 
     /// Returns the earliest year that has any completed reminder, or current year if none.
     func earliestCompletionYear() async -> Int {
+        if let cached = cachedEarliestYear {
+            return cached
+        }
+
         let calendar = Calendar.current
         let currentYear = calendar.component(.year, from: Date())
 
@@ -310,7 +327,13 @@ final class HeatmapData: @unchecked Sendable {
             .map { calendar.component(.year, from: $0) }
             .min()
 
-        return earliestYear ?? currentYear
+        let result = earliestYear ?? currentYear
+        cachedEarliestYear = result
+        return result
+    }
+
+    func invalidateCache() {
+        cachedEarliestYear = nil
     }
 
     // MARK: - Tracker Fetch
@@ -324,6 +347,7 @@ final class HeatmapData: @unchecked Sendable {
         }
 
         let allCalendars = store.calendars(for: .reminder)
+        let colorMap = buildColorIndexMap(from: allCalendars)
 
         // Fetch completed reminders in range
         let completedPredicate = store.predicateForCompletedReminders(
@@ -351,46 +375,45 @@ final class HeatmapData: @unchecked Sendable {
             }
         }
 
-        // Collect recurring reminder metadata: compositeKey → (calendarIdentifier, calendarTitle, colorIndex)
-        var recurringMeta: [String: (calendarIdentifier: String, calendarTitle: String, colorIndex: Int)] = [:]
+        // Collect recurring reminder metadata: TrackerKey → (calendarIdentifier, calendarTitle, colorIndex)
+        var recurringMeta: [TrackerKey: (calendarIdentifier: String, calendarTitle: String, colorIndex: Int)] = [:]
 
         for reminder in completedReminders + incompleteReminders {
             guard let rules = reminder.recurrenceRules, !rules.isEmpty else { continue }
             let title = reminder.title ?? "Untitled"
             let calId = reminder.calendar?.calendarIdentifier ?? ""
-            let compositeKey = calId + ":" + title
-            if recurringMeta[compositeKey] == nil {
-                recurringMeta[compositeKey] = (
+            let key = TrackerKey(calendarIdentifier: calId, title: title)
+            if recurringMeta[key] == nil {
+                recurringMeta[key] = (
                     calendarIdentifier: calId,
                     calendarTitle: reminder.calendar?.title ?? "Unknown",
-                    colorIndex: listColorIndex(for: reminder.calendar, among: allCalendars)
+                    colorIndex: colorMap[calId] ?? 0
                 )
             }
         }
 
-        // Build completion lookup: compositeKey → date → [CompletedReminder]
-        var completionsByKeyDate: [String: [Date: [CompletedReminder]]] = [:]
+        // Build completion lookup: TrackerKey → date → [CompletedReminder]
+        var completionsByKeyDate: [TrackerKey: [Date: [CompletedReminder]]] = [:]
         for reminder in completedReminders {
             guard let completionDate = reminder.completionDate else { continue }
             let title = reminder.title ?? "Untitled"
             let calId = reminder.calendar?.calendarIdentifier ?? ""
-            let compositeKey = calId + ":" + title
+            let key = TrackerKey(calendarIdentifier: calId, title: title)
             let day = calendar.startOfDay(for: completionDate)
             let cr = CompletedReminder(
                 title: title,
                 listName: reminder.calendar?.title ?? "Unknown",
-                listColorIndex: listColorIndex(for: reminder.calendar, among: allCalendars),
+                listColorIndex: colorMap[calId] ?? 0,
                 completionTime: completionDate
             )
-            completionsByKeyDate[compositeKey, default: [:]][day, default: []].append(cr)
+            completionsByKeyDate[key, default: [:]][day, default: []].append(cr)
         }
 
         // Build summaries
         var summaries: [TrackerSummary] = []
 
-        for (compositeKey, meta) in recurringMeta {
-            let title = String(compositeKey.drop(while: { $0 != ":" }).dropFirst())
-            let dateCompletions = completionsByKeyDate[compositeKey] ?? [:]
+        for (key, meta) in recurringMeta {
+            let dateCompletions = completionsByKeyDate[key] ?? [:]
 
             var trackerDays: [TrackerDay] = []
             var totalCount = 0
@@ -409,7 +432,7 @@ final class HeatmapData: @unchecked Sendable {
             }
 
             summaries.append(TrackerSummary(
-                reminderTitle: title,
+                reminderTitle: key.title,
                 calendarTitle: meta.calendarTitle,
                 calendarIdentifier: meta.calendarIdentifier,
                 calendarColorIndex: meta.colorIndex,
