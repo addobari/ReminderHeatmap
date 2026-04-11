@@ -76,6 +76,39 @@ struct TrackerWidgetData {
     }
 }
 
+struct TimeIntelligence {
+    let velocityStats: VelocityStats?
+    let onTimeStats: OnTimeStats?
+
+    struct VelocityStats {
+        let medianHours: Double
+        let averageHours: Double
+        let fastestHours: Double
+        let slowestHours: Double
+        let totalTracked: Int
+        let distribution: [VelocityBucket]
+    }
+
+    struct VelocityBucket: Identifiable {
+        var id: String { label }
+        let label: String
+        let count: Int
+    }
+
+    struct OnTimeStats {
+        let onTimeCount: Int
+        let overdueCount: Int
+        let noDueDateCount: Int
+        let totalCount: Int
+        var onTimePercentage: Double {
+            let tracked = onTimeCount + overdueCount
+            guard tracked > 0 else { return 0 }
+            return Double(onTimeCount) / Double(tracked) * 100
+        }
+        let averageOverdueDays: Double?
+    }
+}
+
 // MARK: - List Color Palette
 
 enum ListColorPalette {
@@ -445,5 +478,116 @@ actor HeatmapData {
         summaries.sort { $0.totalCount > $1.totalCount }
 
         return TrackerWidgetData(summaries: summaries)
+    }
+
+    // MARK: - Time Intelligence
+
+    func fetchTimeIntelligence(last n: Int = 90) async -> TimeIntelligence {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let startDate = calendar.date(byAdding: .day, value: -n, to: calendar.startOfDay(for: now)) else {
+            return TimeIntelligence(velocityStats: nil, onTimeStats: nil)
+        }
+
+        let predicate = store.predicateForCompletedReminders(
+            withCompletionDateStarting: startDate,
+            ending: now,
+            calendars: nil
+        )
+
+        let reminders: [EKReminder]
+        do {
+            reminders = try await withCheckedThrowingContinuation { continuation in
+                store.fetchReminders(matching: predicate) { result in
+                    continuation.resume(returning: result ?? [])
+                }
+            }
+        } catch {
+            return TimeIntelligence(velocityStats: nil, onTimeStats: nil)
+        }
+
+        // --- Velocity ---
+        var hoursArray: [Double] = []
+        for reminder in reminders {
+            guard let completion = reminder.completionDate,
+                  let creation = reminder.creationDate else { continue }
+            let hours = completion.timeIntervalSince(creation) / 3600.0
+            if hours >= 0 {
+                hoursArray.append(hours)
+            }
+        }
+
+        let velocityStats: TimeIntelligence.VelocityStats?
+        if hoursArray.isEmpty {
+            velocityStats = nil
+        } else {
+            let sorted = hoursArray.sorted()
+            let median: Double
+            if sorted.count % 2 == 0 {
+                median = (sorted[sorted.count / 2 - 1] + sorted[sorted.count / 2]) / 2.0
+            } else {
+                median = sorted[sorted.count / 2]
+            }
+
+            let bucketDefs: [(label: String, low: Double, high: Double)] = [
+                ("<1h", 0, 1),
+                ("1–6h", 1, 6),
+                ("6–24h", 6, 24),
+                ("1–3d", 24, 72),
+                ("3–7d", 72, 168),
+                ("7d+", 168, .infinity),
+            ]
+            let distribution = bucketDefs.map { def in
+                let count = sorted.filter { $0 >= def.low && $0 < def.high }.count
+                return TimeIntelligence.VelocityBucket(label: def.label, count: count)
+            }
+
+            velocityStats = TimeIntelligence.VelocityStats(
+                medianHours: median,
+                averageHours: hoursArray.reduce(0, +) / Double(hoursArray.count),
+                fastestHours: sorted.first!,
+                slowestHours: sorted.last!,
+                totalTracked: hoursArray.count,
+                distribution: distribution
+            )
+        }
+
+        // --- On-Time ---
+        var onTimeCount = 0
+        var overdueCount = 0
+        var noDueDateCount = 0
+        var overdueDays: [Double] = []
+
+        for reminder in reminders {
+            guard let completion = reminder.completionDate else { continue }
+
+            guard let dueDateComponents = reminder.dueDateComponents,
+                  let dueDate = calendar.date(from: dueDateComponents) else {
+                noDueDateCount += 1
+                continue
+            }
+
+            let dueEnd = calendar.startOfDay(for: dueDate).addingTimeInterval(86400)
+            if completion <= dueEnd {
+                onTimeCount += 1
+            } else {
+                overdueCount += 1
+                let days = completion.timeIntervalSince(dueEnd) / 86400.0
+                overdueDays.append(days)
+            }
+        }
+
+        let totalCount = onTimeCount + overdueCount + noDueDateCount
+        let averageOverdueDays: Double? = overdueDays.isEmpty ? nil : overdueDays.reduce(0, +) / Double(overdueDays.count)
+
+        let onTimeStats = TimeIntelligence.OnTimeStats(
+            onTimeCount: onTimeCount,
+            overdueCount: overdueCount,
+            noDueDateCount: noDueDateCount,
+            totalCount: totalCount,
+            averageOverdueDays: averageOverdueDays
+        )
+
+        return TimeIntelligence(velocityStats: velocityStats, onTimeStats: onTimeStats)
     }
 }

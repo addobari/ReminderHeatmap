@@ -55,8 +55,9 @@ struct TrackerWidgetView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack(alignment: .firstTextBaseline) {
-                Text("Trackers")
-                    .font(.system(size: 14, weight: .semibold))
+                Text("TRACKERS")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(colorScheme == .dark ? Color.white.opacity(0.55) : Color.black.opacity(0.5))
                 Spacer()
                 Text("Last 30 days")
                     .font(.system(size: 10))

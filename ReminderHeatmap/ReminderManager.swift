@@ -1,6 +1,8 @@
 import EventKit
 import Foundation
+import UserNotifications
 import WidgetKit
+import SwiftUI
 
 @MainActor
 final class ReminderManager: ObservableObject {
@@ -13,9 +15,17 @@ final class ReminderManager: ObservableObject {
     @Published var weekCount = 0
     @Published var streak = 0
     @Published var trackerSummaries: [TrackerSummary] = []
+    @Published var insights: InsightsData?
+    @Published var timeIntelligence: TimeIntelligence?
+    @Published var badges: [Badge] = []
     @Published var selectedYear: Int = Calendar.current.component(.year, from: Date())
     @Published var earliestYear: Int = Calendar.current.component(.year, from: Date())
     @Published var needsRefresh = true
+    @Published var streakFreezeUsedToday: Bool = false
+    @Published var newlyUnlockedBadge: Badge?
+
+    @AppStorage("dailyGoal") var dailyGoal: Int = 5
+    @AppStorage("streakFreezeEnabled") var streakFreezeEnabled: Bool = true
 
     private let store = EKEventStore()
     private var storeChangedObserver: Any?
@@ -43,6 +53,14 @@ final class ReminderManager: ObservableObject {
     }
 
     var todayCount: Int { currentDayReminders.count }
+
+    var dailyGoalProgress: Double {
+        min(Double(todayCount) / max(Double(dailyGoal), 1), 1.0)
+    }
+
+    var dailyGoalMet: Bool {
+        todayCount >= dailyGoal
+    }
 
     func requestAccess() async {
         do {
@@ -88,19 +106,30 @@ final class ReminderManager: ObservableObject {
             .filter { $0.date >= weekStart }
             .reduce(0) { $0 + $1.count }
 
-        // Streak from rolling window
+        // Streak from rolling window (with optional streak freeze)
         let tc = countByDate[today] ?? 0
         var s = 0
+        var freezeUsed = false
         let startOffset = tc > 0 ? 0 : 1
         for offset in startOffset..<90 {
             guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { break }
             if (countByDate[date] ?? 0) > 0 {
                 s += 1
+            } else if streakFreezeEnabled && !freezeUsed {
+                // Allow 1 gap day — but check the next day back too
+                guard let nextDate = calendar.date(byAdding: .day, value: -(offset + 1), to: today) else { break }
+                if (countByDate[nextDate] ?? 0) > 0 {
+                    freezeUsed = true
+                    // Skip this gap day (don't increment s, don't break)
+                } else {
+                    break
+                }
             } else {
                 break
             }
         }
         streak = s
+        streakFreezeUsedToday = freezeUsed
 
         // Year grid data for the selected year
         let targetYear = selectedYear
@@ -123,11 +152,24 @@ final class ReminderManager: ObservableObject {
         lastSyncDate = Date()
         needsRefresh = false
 
+        // Compute insights from rolling 90-day data (no additional fetch)
+        insights = InsightsData.compute(from: rollingDays)
+        let oldUnlockedIDs = Set(badges.filter { $0.isUnlocked }.map { $0.id })
+        badges = BadgeChecker.evaluate(days: rollingDays, currentStreak: streak)
+        let newlyUnlocked = badges.first { $0.isUnlocked && !oldUnlockedIDs.contains($0.id) }
+        if let newlyUnlocked {
+            newlyUnlockedBadge = newlyUnlocked
+        }
+
         // Deferred: earliest year and tracker data (non-blocking for main UI)
         earliestYear = await HeatmapData.shared.earliestCompletionYear()
 
         let trackerData = await HeatmapData.shared.fetchTrackerData(last: 30)
         trackerSummaries = trackerData.summaries
+
+        timeIntelligence = await HeatmapData.shared.fetchTimeIntelligence(last: 90)
+
+        scheduleWeeklyDigest()
     }
 
     func switchYear(to year: Int) async {
@@ -147,5 +189,25 @@ final class ReminderManager: ObservableObject {
 
     func markNeedsRefresh() {
         needsRefresh = true
+    }
+
+    private func scheduleWeeklyDigest() {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Plotted Weekly Digest"
+        content.body = "You completed \(weekCount) tasks this week"
+        content.sound = .default
+
+        var dateComponents = DateComponents()
+        dateComponents.weekday = 1 // Sunday
+        dateComponents.hour = 18  // 6 PM
+
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
+        let request = UNNotificationRequest(identifier: "weekly-digest", content: content, trigger: trigger)
+
+        center.removePendingNotificationRequests(withIdentifiers: ["weekly-digest"])
+        center.add(request)
     }
 }

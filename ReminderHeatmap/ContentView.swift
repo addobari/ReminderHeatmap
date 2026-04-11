@@ -3,6 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var manager: ReminderManager
     @State private var selectedDay: HeatmapDay?
+    @State private var showYearReview = false
+    @State private var showSettings = false
+    @State private var showGoalCelebration = false
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
 
@@ -16,15 +19,20 @@ struct ContentView: View {
                 if manager.isAuthorized {
                     // 1. Stat cards row
                     HStack(spacing: 12) {
-                        StatCard(title: "Streak", value: "\(manager.streak)d", accent: manager.streak > 0)
+                        StreakStatCard(streak: manager.streak, freezeUsed: manager.streakFreezeUsedToday)
                         StatCard(title: "This Week", value: "\(manager.weekCount)")
-                        StatCard(title: "Today", value: "\(manager.todayCount)")
+                        GoalStatCard(todayCount: manager.todayCount, goal: manager.dailyGoal, progress: manager.dailyGoalProgress)
                     }
                     .padding(.horizontal)
 
                     // 2. Today section
-                    todaySection
-                        .padding(.horizontal)
+                    if manager.yearDays.isEmpty && manager.todayCount == 0 {
+                        emptyStateCoaching
+                            .padding(.horizontal)
+                    } else {
+                        todaySection
+                            .padding(.horizontal)
+                    }
 
                     // 3. Heatmap card
                     heatmapCard
@@ -47,21 +55,65 @@ struct ContentView: View {
         .navigationTitle("Plotted")
         .toolbar {
             ToolbarItem(placement: .automatic) {
-                Picker(selection: $appearanceMode) {
-                    ForEach(AppearanceMode.allCases) { mode in
-                        Text(mode.label).tag(mode.rawValue)
+                HStack(spacing: 8) {
+                    ShareHeatmapView(yearDays: manager.yearDays, year: manager.selectedYear)
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
                     }
-                } label: {
-                    EmptyView()
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
             }
         }
         .sheet(item: $selectedDay) { day in
             DayDetailView(day: day)
                 .frame(minWidth: 360, minHeight: 400)
         }
+        .sheet(isPresented: $showYearReview) {
+            YearInReviewView(yearDays: manager.yearDays, year: manager.selectedYear, badges: manager.badges)
+                .frame(minWidth: 400, minHeight: 500)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .overlay(alignment: .center) {
+            if showGoalCelebration {
+                GoalCelebrationView()
+                    .transition(.scale.combined(with: .opacity))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { showGoalCelebration = false }
+                        }
+                    }
+            }
+        }
+        .onChange(of: manager.dailyGoalMet) { met in
+            if met {
+                withAnimation(.spring(response: 0.4)) {
+                    showGoalCelebration = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStateCoaching: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "leaf.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme).opacity(0.5))
+            Text("Complete a reminder to plant your first green square")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Text("Every completed task lights up your heatmap")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Today Section
@@ -156,6 +208,19 @@ struct ContentView: View {
                 yearStat(title: "Best day", value: yearBestDay)
                 yearStat(title: "Active days", value: yearActiveDays)
                 yearStat(title: "Daily avg", value: yearDailyAvg)
+            }
+
+            // Action buttons
+            HStack(spacing: 12) {
+                ShareHeatmapView(yearDays: manager.yearDays, year: manager.selectedYear)
+                Button {
+                    showYearReview = true
+                } label: {
+                    Label("Year in Review", systemImage: "sparkles")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
         }
         .padding(14)
@@ -328,8 +393,95 @@ private struct StatCard: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+        .frame(height: 72)
         .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+// MARK: - Streak Stat Card (with freeze indicator)
+
+private struct StreakStatCard: View {
+    let streak: Int
+    let freezeUsed: Bool
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 3) {
+                Text("\(streak)d")
+                    .font(.title2.bold().monospacedDigit())
+                    .foregroundStyle(streak > 0 ? .green : .primary)
+                if freezeUsed {
+                    Image(systemName: "snowflake")
+                        .font(.caption2)
+                        .foregroundStyle(.cyan)
+                }
+            }
+            Text("Streak")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 72)
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+// MARK: - Goal Stat Card (with progress ring)
+
+private struct GoalStatCard: View {
+    let todayCount: Int
+    let goal: Int
+    let progress: Double
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Circle()
+                    .stroke(HeatmapTheme.emptyColor(for: colorScheme), lineWidth: 3)
+                    .frame(width: 30, height: 30)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        todayCount >= goal ? HeatmapTheme.accentGreen(for: colorScheme) : .orange,
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                    .frame(width: 30, height: 30)
+                    .rotationEffect(.degrees(-90))
+                Text("\(todayCount)")
+                    .font(.system(size: 12, weight: .bold).monospacedDigit())
+            }
+            Text("of \(goal) goal")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 72)
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+// MARK: - Goal Celebration
+
+private struct GoalCelebrationView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("🎉")
+                .font(.system(size: 40))
+            Text("Daily Goal Met!")
+                .font(.headline.bold())
+            Text("Great work today")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(24)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(radius: 12, y: 6)
     }
 }
 
