@@ -62,18 +62,19 @@ private struct HeatmapShareImage: View {
     var body: some View {
         VStack(spacing: 16) {
             // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Plotted")
-                        .font(.title2.bold())
-                    Text("\(year, format: .number.grouping(.never))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+            HStack(alignment: .firstTextBaseline) {
+                Text("Plotted")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                Text("\(year, format: .number.grouping(.never))")
+                    .font(.system(size: 22, weight: .light, design: .rounded))
+                    .foregroundStyle(.secondary)
                 Spacer()
-                Text("\(totalCompletions) completions")
-                    .font(.subheadline.weight(.medium))
+                Text("\(totalCompletions)")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(HeatmapTheme.accentGreen(for: scheme))
+                + Text(" completions")
+                    .font(.system(size: 14, weight: .regular, design: .rounded))
+                    .foregroundStyle(.secondary)
             }
 
             // Grid
@@ -82,7 +83,7 @@ private struct HeatmapShareImage: View {
             // Footer
             HStack {
                 Spacer()
-                Text("plotted.app")
+                Text("github.com/addobari/ReminderHeatmap")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }

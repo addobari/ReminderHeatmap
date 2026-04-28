@@ -23,12 +23,12 @@ struct ReminderHeatmapApp: App {
                     ContentView(manager: manager)
                 }
                 .tabItem {
-                    Label("Heatmap", systemImage: "square.grid.3x3.fill")
+                    Label("Home", systemImage: "square.grid.3x3.fill")
                 }
                 .keyboardShortcut("1", modifiers: .command)
 
                 NavigationStack {
-                    TrackersView(summaries: manager.trackerSummaries)
+                    TrackersView(summaries: manager.trackerSummaries, milestones: manager.milestones)
                         .navigationTitle("Trackers")
                 }
                 .tabItem {
@@ -38,7 +38,7 @@ struct ReminderHeatmapApp: App {
 
                 NavigationStack {
                     if let insights = manager.insights {
-                        InsightsView(insights: insights, streak: manager.streak, timeIntelligence: manager.timeIntelligence, badges: manager.badges, rollingDays: manager.days)
+                        InsightsView(insights: insights, streak: manager.streak, timeIntelligence: manager.timeIntelligence, badges: manager.badges, rollingDays: manager.days, behavior: manager.behaviorIntelligence)
                     } else {
                         ProgressView("Loading insights…")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,6 +48,18 @@ struct ReminderHeatmapApp: App {
                     Label("Insights", systemImage: "chart.bar.fill")
                 }
                 .keyboardShortcut("3", modifiers: .command)
+
+                NavigationStack {
+                    SystemView(
+                        system: manager.systemIntelligence,
+                        behavior: manager.behaviorIntelligence,
+                        milestones: manager.milestones
+                    )
+                }
+                .tabItem {
+                    Label("System", systemImage: "circle.grid.cross")
+                }
+                .keyboardShortcut("4", modifiers: .command)
             }
             .frame(minWidth: 520, minHeight: 400)
             .preferredColorScheme((AppearanceMode(rawValue: appearanceMode) ?? .system).colorScheme)
@@ -129,17 +141,19 @@ private struct BadgeToast: View {
         HStack(spacing: 10) {
             Image(systemName: badge.icon)
                 .font(.title3)
-                .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme))
+                .foregroundStyle(HeatmapTheme.accentWarm(for: colorScheme))
             VStack(alignment: .leading, spacing: 1) {
-                Text("🏆 Badge Unlocked!")
-                    .font(.caption.bold())
+                Text("Badge Unlocked")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.5)
                 Text(badge.name)
-                    .font(.callout.weight(.semibold))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(radius: 8, y: 4)
+        .shadow(radius: 12, y: 6)
     }
 }

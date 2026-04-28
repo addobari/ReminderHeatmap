@@ -590,4 +590,31 @@ actor HeatmapData {
 
         return TimeIntelligence(velocityStats: velocityStats, onTimeStats: onTimeStats)
     }
+
+    // MARK: - Calendar Events Fetch
+
+    func fetchCalendarEvents(last days: Int = 90) async -> [CalendarEvent] {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let startDate = calendar.date(byAdding: .day, value: -days, to: calendar.startOfDay(for: now)) else {
+            return []
+        }
+
+        let predicate = store.predicateForEvents(withStart: startDate, end: now, calendars: nil)
+        let ekEvents = store.events(matching: predicate)
+
+        let allCalendars = store.calendars(for: .event)
+        let colorMap = buildColorIndexMap(from: allCalendars)
+
+        return ekEvents.map { event in
+            CalendarEvent(
+                title: event.title ?? "Untitled",
+                calendarName: event.calendar?.title ?? "Unknown",
+                calendarColorIndex: colorMap[event.calendar?.calendarIdentifier ?? ""] ?? 0,
+                startDate: event.startDate,
+                endDate: event.endDate,
+                isAllDay: event.isAllDay
+            )
+        }
+    }
 }

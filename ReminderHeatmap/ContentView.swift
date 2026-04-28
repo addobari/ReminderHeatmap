@@ -6,26 +6,33 @@ struct ContentView: View {
     @State private var showYearReview = false
     @State private var showSettings = false
     @State private var showGoalCelebration = false
+    @State private var showMilestoneCreate = false
+    @State private var editingMilestone: Milestone?
+    @State private var todayExpanded = false
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 24) {
                 if !manager.isAuthorized {
                     permissionSection
                 }
 
                 if manager.isAuthorized {
-                    // 1. Stat cards row
-                    HStack(spacing: 12) {
-                        StreakStatCard(streak: manager.streak, freezeUsed: manager.streakFreezeUsedToday)
-                        StatCard(title: "This Week", value: "\(manager.weekCount)")
-                        GoalStatCard(todayCount: manager.todayCount, goal: manager.dailyGoal, progress: manager.dailyGoalProgress)
-                    }
-                    .padding(.horizontal)
+                    // 1. Greeting + stats
+                    greetingHeader
+                        .padding(.horizontal)
 
-                    // 2. Today section
+                    // 2. Milestones
+                    milestonesSection
+                        .padding(.horizontal)
+
+                    // 3. Heatmap — the hero
+                    heatmapCard
+                        .padding(.horizontal)
+
+                    // 4. Today section
                     if manager.yearDays.isEmpty && manager.todayCount == 0 {
                         emptyStateCoaching
                             .padding(.horizontal)
@@ -34,16 +41,12 @@ struct ContentView: View {
                             .padding(.horizontal)
                     }
 
-                    // 3. Heatmap card
-                    heatmapCard
-                        .padding(.horizontal)
-
                     // Last updated footer
                     HStack {
                         if let sync = manager.lastSyncDate {
-                            Text("Last updated: \(sync.formatted(.relative(presentation: .named)))")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
+                            Text("Updated \(sync.formatted(.relative(presentation: .named)))")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.quaternary)
                         }
                         Spacer()
                     }
@@ -55,18 +58,15 @@ struct ContentView: View {
         .navigationTitle("Plotted")
         .toolbar {
             ToolbarItem(placement: .automatic) {
-                HStack(spacing: 8) {
-                    ShareHeatmapView(yearDays: manager.yearDays, year: manager.selectedYear)
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
                 }
             }
         }
         .sheet(item: $selectedDay) { day in
-            DayDetailView(day: day)
+            DayDetailView(day: day, allDays: manager.yearDays)
                 .frame(minWidth: 360, minHeight: 400)
         }
         .sheet(isPresented: $showYearReview) {
@@ -76,12 +76,29 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
+        .sheet(isPresented: $showMilestoneCreate) {
+            MilestoneCreateView(
+                trackerSummaries: manager.trackerSummaries,
+                onSave: { manager.saveMilestone($0) }
+            )
+        }
+        .sheet(item: $editingMilestone) { milestone in
+            MilestoneCreateView(
+                trackerSummaries: manager.trackerSummaries,
+                existing: milestone,
+                onSave: { manager.saveMilestone($0) },
+                onDelete: { manager.deleteMilestone(milestone) }
+            )
+        }
         .overlay(alignment: .center) {
             if showGoalCelebration {
                 GoalCelebrationView()
                     .transition(.scale.combined(with: .opacity))
+                    .onTapGesture {
+                        withAnimation { showGoalCelebration = false }
+                    }
                     .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                             withAnimation { showGoalCelebration = false }
                         }
                     }
@@ -93,6 +110,121 @@ struct ContentView: View {
                     showGoalCelebration = true
                 }
             }
+        }
+    }
+
+    // MARK: - Milestones Section
+
+    @ViewBuilder
+    private var milestonesSection: some View {
+        let sorted = manager.milestones.sorted { a, b in
+            if a.isExpired != b.isExpired { return !a.isExpired }
+            return a.daysRemaining < b.daysRemaining
+        }
+
+        if sorted.isEmpty {
+            // Inviting empty state
+            Button { showMilestoneCreate = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "flag")
+                        .font(.system(size: 16))
+                        .foregroundStyle(HeatmapTheme.accentWarm(for: colorScheme).opacity(0.6))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Set a goal")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.primary)
+                        Text("Connect your daily habits to what you're building toward")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(14)
+                .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+        } else {
+            let bi = manager.behaviorIntelligence
+            VStack(spacing: 10) {
+                ForEach(sorted) { milestone in
+                    MilestoneCard(
+                        milestone: milestone,
+                        trackerSummaries: manager.trackerSummaries,
+                        effort: bi.milestoneEfforts[milestone.id],
+                        onEdit: { editingMilestone = milestone },
+                        onReflect: { text in
+                            manager.setReflection(text, for: milestone)
+                        }
+                    )
+                }
+
+                Button { showMilestoneCreate = true } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .medium))
+                        Text("Add goal")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - Greeting Header
+
+    private var greetingHeader: some View {
+        let bi = manager.behaviorIntelligence
+        return HStack(alignment: .bottom, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(bi.identityStatement)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        if manager.streak > 0 {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(HeatmapTheme.accentWarm(for: colorScheme))
+                        }
+                        Text("\(manager.streak)")
+                            .font(HeatmapTheme.statNumber)
+                            .foregroundStyle(manager.streak > 0 ? HeatmapTheme.accentWarm(for: colorScheme) : .secondary)
+                        Text("streak")
+                            .font(HeatmapTheme.statLabel)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(manager.weekCount)")
+                            .font(HeatmapTheme.statNumber)
+                        Text("this week")
+                            .font(HeatmapTheme.statLabel)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(manager.todayCount)")
+                            .font(HeatmapTheme.statNumber)
+                            .foregroundStyle(manager.dailyGoalMet ? HeatmapTheme.accentGreen(for: colorScheme) : .primary)
+                        Text("of \(manager.dailyGoal) today")
+                            .font(HeatmapTheme.statLabel)
+                            .foregroundStyle(.secondary)
+                        if manager.streakFreezeUsedToday {
+                            Image(systemName: "snowflake")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.cyan)
+                        }
+                    }
+                }
+            }
+            Spacer()
         }
     }
 
@@ -128,24 +260,28 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("TODAY")
-                    .font(.caption.weight(.semibold))
+                    .font(HeatmapTheme.sectionTitle)
                     .foregroundStyle(.secondary)
+                    .tracking(1)
                 Spacer()
-                Text("\(manager.todayCount) completed")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if manager.todayCount > 0 {
+                    Text("\(manager.todayCount) completed")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
 
             if manager.currentDayReminders.isEmpty {
-                Text("Nothing completed yet today")
+                Text("Your day is wide open")
                     .font(.callout)
                     .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
             } else {
-                let visible = Array(manager.currentDayReminders.prefix(8))
+                let limit = todayExpanded ? manager.currentDayReminders.count : 8
+                let visible = Array(manager.currentDayReminders.prefix(limit))
                 ForEach(Array(visible.enumerated()), id: \.element.id) { index, reminder in
                     if index > 0 {
                         Divider()
@@ -171,11 +307,18 @@ struct ContentView: View {
                     .padding(.vertical, 7)
                 }
                 if manager.currentDayReminders.count > 8 {
-                    Text("…and \(manager.currentDayReminders.count - 8) more")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            todayExpanded.toggle()
+                        }
+                    } label: {
+                        Text(todayExpanded ? "Show less" : "…and \(manager.currentDayReminders.count - 8) more")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
                 }
             }
         }
@@ -185,7 +328,7 @@ struct ContentView: View {
     // MARK: - Heatmap Card
 
     private var heatmapCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             // Header: year switcher + legend
             HStack {
                 yearSwitcher
@@ -193,38 +336,37 @@ struct ContentView: View {
                 legendBar
             }
 
-            // Full-year grid
+            // Full-year grid — the hero
             YearHeatmapGrid(
                 days: manager.yearDays,
                 year: manager.selectedYear,
                 onDayTap: { day in selectedDay = day }
             )
 
-            // Stats row
-            Divider()
-                .background(.primary.opacity(0.08))
-
+            // Stats + actions row
             HStack(spacing: 0) {
                 yearStat(title: "Best day", value: yearBestDay)
                 yearStat(title: "Active days", value: yearActiveDays)
                 yearStat(title: "Daily avg", value: yearDailyAvg)
-            }
 
-            // Action buttons
-            HStack(spacing: 12) {
-                ShareHeatmapView(yearDays: manager.yearDays, year: manager.selectedYear)
-                Button {
-                    showYearReview = true
-                } label: {
-                    Label("Year in Review", systemImage: "sparkles")
-                        .font(.caption)
+                Spacer()
+
+                HStack(spacing: 10) {
+                    ShareHeatmapView(yearDays: manager.yearDays, year: manager.selectedYear)
+                    Button {
+                        showYearReview = true
+                    } label: {
+                        Image(systemName: "sparkles")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Year in Review")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
             }
         }
-        .padding(14)
-        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
+        .padding(18)
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 14))
     }
 
     // MARK: - Year Switcher
@@ -315,14 +457,14 @@ struct ContentView: View {
     }
 
     private func yearStat(title: String, value: String) -> some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 2) {
             Text(value)
-                .font(.callout.bold().monospacedDigit())
+                .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
             Text(title)
                 .font(.system(size: 9))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: 64)
     }
 
     // MARK: - Permission Section
@@ -474,7 +616,7 @@ private struct GoalCelebrationView: View {
             Text("🎉")
                 .font(.system(size: 40))
             Text("Daily Goal Met!")
-                .font(.headline.bold())
+                .font(.system(size: 15, weight: .bold, design: .rounded))
             Text("Great work today")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -495,7 +637,7 @@ struct YearHeatmapGrid: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private let rows = 7
-    private let cellSize: CGFloat = 11
+    private let cellSize: CGFloat = 13
     private let cellSpacing: CGFloat = 3
 
     private static let dayLabels = ["", "Mon", "", "Wed", "", "Fri", ""]
@@ -589,42 +731,52 @@ struct YearHeatmapGrid: View {
         let info = gridInfo
         let labelColumnWidth: CGFloat = 22
 
-        ScrollView(.horizontal, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 2) {
-                // Month labels
-                ZStack(alignment: .leading) {
-                    Color.clear.frame(height: 14)
-                    ForEach(info.monthLabels, id: \.1) { label, col in
-                        Text(label)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .offset(x: CGFloat(col) * (cellSize + cellSpacing) + labelColumnWidth)
-                    }
-                }
-                .frame(width: CGFloat(info.columns) * (cellSize + cellSpacing) + labelColumnWidth, alignment: .leading)
-
-                // Grid with day labels
-                HStack(alignment: .top, spacing: 2) {
-                    // Day labels column
-                    VStack(alignment: .trailing, spacing: cellSpacing) {
-                        ForEach(0..<rows, id: \.self) { row in
-                            Text(Self.dayLabels[row])
-                                .font(.system(size: 8, weight: .medium))
+        ScrollViewReader { scrollProxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 2) {
+                    // Month labels
+                    ZStack(alignment: .leading) {
+                        Color.clear.frame(height: 14)
+                        ForEach(info.monthLabels, id: \.1) { label, col in
+                            Text(label)
+                                .font(.system(size: 9, weight: .medium))
                                 .foregroundStyle(.secondary)
-                                .frame(width: labelColumnWidth - 2, height: cellSize, alignment: .trailing)
+                                .offset(x: CGFloat(col) * (cellSize + cellSpacing) + labelColumnWidth)
                         }
                     }
+                    .frame(width: CGFloat(info.columns) * (cellSize + cellSpacing) + labelColumnWidth, alignment: .leading)
 
-                    // Cells
-                    HStack(spacing: cellSpacing) {
-                        ForEach(0..<info.columns, id: \.self) { col in
-                            VStack(spacing: cellSpacing) {
-                                ForEach(0..<rows, id: \.self) { row in
-                                    cellView(for: info.cells[col][row])
+                    // Grid with day labels
+                    HStack(alignment: .top, spacing: 2) {
+                        // Day labels column
+                        VStack(alignment: .trailing, spacing: cellSpacing) {
+                            ForEach(0..<rows, id: \.self) { row in
+                                Text(Self.dayLabels[row])
+                                    .font(.system(size: 8, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: labelColumnWidth - 2, height: cellSize, alignment: .trailing)
+                            }
+                        }
+
+                        // Cells
+                        HStack(spacing: cellSpacing) {
+                            ForEach(0..<info.columns, id: \.self) { col in
+                                VStack(spacing: cellSpacing) {
+                                    ForEach(0..<rows, id: \.self) { row in
+                                        cellView(for: info.cells[col][row])
+                                    }
                                 }
+                                .id(col)
                             }
                         }
                     }
+                }
+            }
+            .onAppear {
+                let currentYear = Calendar.current.component(.year, from: Date())
+                if year == currentYear, info.columns > 0 {
+                    let targetCol = max(info.columns - 4, 0)
+                    scrollProxy.scrollTo(targetCol, anchor: .trailing)
                 }
             }
         }

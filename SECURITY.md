@@ -13,7 +13,7 @@ Plotted is a local-only macOS app that visualizes completed Apple Reminders as a
 | **No accounts or authentication** | There are no user accounts, logins, or tokens. |
 | **No analytics or telemetry** | No usage tracking, crash reporting, or behavioral analytics of any kind. |
 | **No network calls** | The only outbound network activity is Sparkle checking for app updates from this GitHub repository. |
-| **Local storage only** | User preferences (daily goal, theme, streak freeze) and badge unlock dates are stored in local UserDefaults. |
+| **Local storage only** | User preferences (daily goal, theme, streak freeze), badge unlock dates, and goal milestones are stored in local UserDefaults. |
 
 ## Update Security
 

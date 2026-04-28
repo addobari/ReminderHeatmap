@@ -104,13 +104,13 @@ struct YearInReviewView: View {
                 // Big stat
                 VStack(spacing: 4) {
                     Text("\(totalCompletions)")
-                        .font(.system(size: 48, weight: .bold).monospacedDigit())
+                        .font(.system(size: 52, weight: .bold, design: .rounded).monospacedDigit())
                         .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme))
                     Text("total completions")
-                        .font(.subheadline)
+                        .font(HeatmapTheme.statLabel)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, 12)
 
                 // Stat rows
                 VStack(spacing: 10) {
@@ -136,10 +136,10 @@ struct YearInReviewView: View {
                 .font(.callout)
             Spacer()
             Text(value)
-                .font(.callout.weight(.medium).monospacedDigit())
+                .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 10))
+        .padding(14)
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 }

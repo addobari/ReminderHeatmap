@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct DayDetailView: View {
-    let day: HeatmapDay
+    @State var day: HeatmapDay
+    var allDays: [HeatmapDay] = []
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -17,24 +19,75 @@ struct DayDetailView: View {
         return f
     }()
 
-    @Environment(\.dismiss) private var dismiss
+    private var sortedDays: [HeatmapDay] {
+        allDays.sorted { $0.date < $1.date }
+    }
+
+    private var currentIndex: Int? {
+        sortedDays.firstIndex(where: { Calendar.current.isDate($0.date, inSameDayAs: day.date) })
+    }
+
+    private var canGoPrev: Bool {
+        guard let idx = currentIndex else { return false }
+        return idx > 0
+    }
+
+    private var canGoNext: Bool {
+        guard let idx = currentIndex else { return false }
+        return idx < sortedDays.count - 1
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Header with close button
+                // Header with navigation + close
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Self.dateFormatter.string(from: day.date))
-                            .font(.title3.bold())
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
                         Text("\(day.count) completed")
-                            .font(.subheadline)
+                            .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
+
+                    if !allDays.isEmpty {
+                        HStack(spacing: 4) {
+                            Button {
+                                if let idx = currentIndex, idx > 0 {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        day = sortedDays[idx - 1]
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(canGoPrev ? .secondary : .quaternary)
+                                    .frame(width: 24, height: 24)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canGoPrev)
+
+                            Button {
+                                if let idx = currentIndex, idx < sortedDays.count - 1 {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        day = sortedDays[idx + 1]
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(canGoNext ? .secondary : .quaternary)
+                                    .frame(width: 24, height: 24)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canGoNext)
+                        }
+                    }
+
+                    Button { dismiss() } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.title2)
                             .foregroundStyle(.secondary)
@@ -47,7 +100,7 @@ struct DayDetailView: View {
                         Image(systemName: "tray")
                             .font(.largeTitle)
                             .foregroundStyle(.secondary)
-                        Text("No completions this day")
+                        Text("A quiet day")
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
@@ -71,7 +124,7 @@ struct DayDetailView: View {
                             ForEach(group.reminders) { reminder in
                                 HStack {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme))
                                         .font(.caption)
                                     Text(reminder.title)
                                         .font(.body)

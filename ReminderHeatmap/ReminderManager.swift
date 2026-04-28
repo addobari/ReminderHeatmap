@@ -23,6 +23,35 @@ final class ReminderManager: ObservableObject {
     @Published var needsRefresh = true
     @Published var streakFreezeUsedToday: Bool = false
     @Published var newlyUnlockedBadge: Badge?
+    @Published var milestones: [Milestone] = []
+    @Published var isCalendarAuthorized = false
+    @Published var calendarEvents: [CalendarEvent] = []
+
+    var behaviorIntelligence: BehaviorIntelligence {
+        BehaviorIntelligence.compute(
+            yearDays: yearDays,
+            trackerSummaries: trackerSummaries,
+            milestones: milestones,
+            streak: streak
+        )
+    }
+
+    var systemIntelligence: SystemIntelligence {
+        SystemIntelligence.compute(
+            yearDays: yearDays,
+            trackerSummaries: trackerSummaries,
+            milestones: milestones
+        )
+    }
+
+    var calendarIntelligence: CalendarIntelligence? {
+        guard isCalendarAuthorized, !calendarEvents.isEmpty else { return nil }
+        return CalendarIntelligence.compute(
+            events: calendarEvents,
+            yearDays: yearDays,
+            trackerNames: Set(trackerSummaries.map(\.reminderTitle))
+        )
+    }
 
     @AppStorage("dailyGoal") var dailyGoal: Int = 5
     @AppStorage("streakFreezeEnabled") var streakFreezeEnabled: Bool = true
@@ -33,6 +62,8 @@ final class ReminderManager: ObservableObject {
     var currentYear: Int { Calendar.current.component(.year, from: Date()) }
 
     init() {
+        milestones = MilestoneStore.load()
+        checkCalendarAuthorization()
         storeChangedObserver = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
             object: store,
@@ -169,6 +200,9 @@ final class ReminderManager: ObservableObject {
 
         timeIntelligence = await HeatmapData.shared.fetchTimeIntelligence(last: 90)
 
+        // Calendar events (if authorized)
+        await fetchCalendarEvents()
+
         scheduleWeeklyDigest()
     }
 
@@ -189,6 +223,52 @@ final class ReminderManager: ObservableObject {
 
     func markNeedsRefresh() {
         needsRefresh = true
+    }
+
+    // MARK: - Milestones
+
+    func saveMilestone(_ milestone: Milestone) {
+        if let idx = milestones.firstIndex(where: { $0.id == milestone.id }) {
+            milestones[idx] = milestone
+        } else {
+            milestones.append(milestone)
+        }
+        MilestoneStore.save(milestones)
+    }
+
+    func deleteMilestone(_ milestone: Milestone) {
+        milestones.removeAll { $0.id == milestone.id }
+        MilestoneStore.save(milestones)
+    }
+
+    func setReflection(_ text: String, for milestone: Milestone) {
+        guard let idx = milestones.firstIndex(where: { $0.id == milestone.id }) else { return }
+        milestones[idx].reflection = text
+        MilestoneStore.save(milestones)
+    }
+
+    // MARK: - Calendar Integration
+
+    func checkCalendarAuthorization() {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        isCalendarAuthorized = status == .fullAccess || status == .authorized
+    }
+
+    func requestCalendarAccess() async {
+        do {
+            let granted = try await store.requestFullAccessToEvents()
+            isCalendarAuthorized = granted
+            if granted {
+                await fetchCalendarEvents()
+            }
+        } catch {
+            isCalendarAuthorized = false
+        }
+    }
+
+    func fetchCalendarEvents() async {
+        guard isCalendarAuthorized else { return }
+        calendarEvents = await HeatmapData.shared.fetchCalendarEvents(last: 90)
     }
 
     private func scheduleWeeklyDigest() {

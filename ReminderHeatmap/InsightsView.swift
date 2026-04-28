@@ -6,6 +6,7 @@ struct InsightsView: View {
     var timeIntelligence: TimeIntelligence?
     var badges: [Badge] = []
     var rollingDays: [HeatmapDay] = []
+    var behavior: BehaviorIntelligence?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedList: InsightsData.ListRanking?
@@ -15,6 +16,11 @@ struct InsightsView: View {
             VStack(spacing: 16) {
                 // Nudges at the top
                 nudgesSection
+
+                // Behavior Intelligence
+                if let bi = behavior {
+                    behaviorSection(bi)
+                }
 
                 // Achievements
                 if !badges.isEmpty {
@@ -62,13 +68,14 @@ struct InsightsView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         HStack {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+            Text(title.uppercased())
+                .font(HeatmapTheme.sectionTitle)
+                .foregroundStyle(.secondary)
+                .tracking(1)
             Spacer()
         }
         .padding(.horizontal)
-        .padding(.top, 8)
+        .padding(.top, 12)
     }
 
     // MARK: - Nudges
@@ -140,8 +147,9 @@ struct InsightsView: View {
     private var hourlyChart: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("COMPLETION BY HOUR")
-                .font(.caption.weight(.semibold))
+                .font(HeatmapTheme.sectionTitle)
                 .foregroundStyle(.secondary)
+                .tracking(0.5)
 
             let maxCount = max(insights.hourlyDistribution.max() ?? 1, 1)
 
@@ -178,8 +186,9 @@ struct InsightsView: View {
     private var weekdayChart: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("AVERAGE BY DAY")
-                .font(.caption.weight(.semibold))
+                .font(HeatmapTheme.sectionTitle)
                 .foregroundStyle(.secondary)
+                .tracking(0.5)
 
             let maxAvg = max(insights.weekdayAverages.map(\.average).max() ?? 1, 1)
 
@@ -215,8 +224,9 @@ struct InsightsView: View {
     private var weeklyTrendChart: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("WEEKLY TREND")
-                .font(.caption.weight(.semibold))
+                .font(HeatmapTheme.sectionTitle)
                 .foregroundStyle(.secondary)
+                .tracking(0.5)
 
             let maxCount = max(insights.weeklyTrend.map(\.count).max() ?? 1, 1)
 
@@ -251,8 +261,9 @@ struct InsightsView: View {
     private var listRankingsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("TOP LISTS")
-                .font(.caption.weight(.semibold))
+                .font(HeatmapTheme.sectionTitle)
                 .foregroundStyle(.secondary)
+                .tracking(0.5)
 
             if insights.listRankings.isEmpty {
                 Text("No data yet")
@@ -325,8 +336,9 @@ struct InsightsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("ACHIEVEMENTS")
-                    .font(.caption.weight(.semibold))
+                    .font(HeatmapTheme.sectionTitle)
                     .foregroundStyle(.secondary)
+                    .tracking(0.5)
                 Spacer()
                 let unlocked = badges.filter(\.isUnlocked).count
                 Text("\(unlocked)/\(badges.count)")
@@ -361,7 +373,7 @@ struct InsightsView: View {
             }
             Text(badge.name)
                 .font(.system(size: 8, weight: .medium))
-                .foregroundStyle(badge.isUnlocked ? .primary : .tertiary)
+                .foregroundStyle(badge.isUnlocked ? .primary : .secondary)
                 .lineLimit(1)
             if let date = badge.unlockedDate {
                 Text(Self.badgeDateFormatter.string(from: date))
@@ -370,7 +382,7 @@ struct InsightsView: View {
             } else {
                 Text(badge.description)
                     .font(.system(size: 7))
-                    .foregroundStyle(.quaternary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
@@ -393,8 +405,9 @@ struct InsightsView: View {
     private func velocityCard(_ stats: TimeIntelligence.VelocityStats) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("COMPLETION VELOCITY")
-                .font(.caption.weight(.semibold))
+                .font(HeatmapTheme.sectionTitle)
                 .foregroundStyle(.secondary)
+                .tracking(0.5)
 
             HStack(spacing: 16) {
                 velocityStat(label: "Median", value: formatDuration(stats.medianHours))
@@ -446,8 +459,9 @@ struct InsightsView: View {
     private func onTimeCard(_ stats: TimeIntelligence.OnTimeStats) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("ON-TIME COMPLETION")
-                .font(.caption.weight(.semibold))
+                .font(HeatmapTheme.sectionTitle)
                 .foregroundStyle(.secondary)
+                .tracking(0.5)
 
             HStack(spacing: 0) {
                 let tracked = stats.onTimeCount + stats.overdueCount
@@ -509,6 +523,46 @@ struct InsightsView: View {
             return String(format: "%.1fh", hours)
         } else {
             return String(format: "%.1fd", hours / 24)
+        }
+    }
+
+    // MARK: - Behavior Intelligence
+
+    private func behaviorSection(_ bi: BehaviorIntelligence) -> some View {
+        let hasContent = bi.keystoneHabit != nil || !bi.correlations.isEmpty || bi.sustainability != nil
+        return Group {
+            if hasContent {
+                sectionHeader("Behavior")
+                VStack(spacing: 8) {
+                    // Keystone habit
+                    if let keystone = bi.keystoneHabit {
+                        nudgeCard(
+                            icon: "key.fill",
+                            iconColor: HeatmapTheme.accentWarm(for: colorScheme),
+                            text: keystone.message
+                        )
+                    }
+
+                    // Sustainability signal
+                    if let signal = bi.sustainability {
+                        nudgeCard(
+                            icon: signal.trend == .spiking ? "exclamationmark.triangle" : "arrow.down.right",
+                            iconColor: signal.trend == .spiking ? .orange : .blue,
+                            text: signal.message
+                        )
+                    }
+
+                    // Correlations (top 2)
+                    ForEach(bi.correlations.prefix(2)) { corr in
+                        nudgeCard(
+                            icon: "link",
+                            iconColor: HeatmapTheme.accentGreen(for: colorScheme),
+                            text: corr.message
+                        )
+                    }
+                }
+                .padding(.horizontal)
+            }
         }
     }
 }

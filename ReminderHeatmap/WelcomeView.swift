@@ -8,7 +8,7 @@ struct WelcomeView: View {
     @State private var currentPage = 0
 
     private let pages: [(icon: String, title: String, subtitle: String)] = [
-        ("square.grid.3x3.fill", "Welcome to Plotted", "Visualize your completed reminders as a GitHub-style heatmap"),
+        ("square.grid.3x3.fill", "Welcome to Plotted", "Track your habits, set goals, and watch your consistency grow"),
         ("lock.open.fill", "Grant Access", "Plotted reads your completed reminders. Nothing leaves your Mac."),
         ("macwindow.on.rectangle", "Add a Widget", "Right-click your desktop → Edit Widgets → search Plotted"),
     ]

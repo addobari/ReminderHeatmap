@@ -2,6 +2,15 @@ import SwiftUI
 
 struct TrackersView: View {
     let summaries: [TrackerSummary]
+    var milestones: [Milestone] = []
+
+    private func linkedGoals(for summary: TrackerSummary) -> [Milestone] {
+        milestones.filter { milestone in
+            milestone.linkedReminders.contains(where: {
+                $0.calendarIdentifier == summary.calendarIdentifier && $0.reminderTitle == summary.reminderTitle
+            })
+        }
+    }
 
     var body: some View {
         if summaries.isEmpty {
@@ -21,7 +30,7 @@ struct TrackersView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     ForEach(summaries) { summary in
-                        TrackerCard(summary: summary)
+                        TrackerCard(summary: summary, linkedGoals: linkedGoals(for: summary))
                     }
                 }
                 .padding()
@@ -34,6 +43,7 @@ struct TrackersView: View {
 
 private struct TrackerCard: View {
     let summary: TrackerSummary
+    var linkedGoals: [Milestone] = []
     @State private var selectedDay: TrackerDay?
     @Environment(\.colorScheme) private var colorScheme
 
@@ -68,11 +78,23 @@ private struct TrackerCard: View {
                         Text(summary.calendarTitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if !linkedGoals.isEmpty {
+                            ForEach(linkedGoals) { goal in
+                                HStack(spacing: 3) {
+                                    Image(systemName: "flag.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(HeatmapTheme.accentWarm(for: colorScheme))
+                                    Text(goal.name)
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(HeatmapTheme.accentWarm(for: colorScheme))
+                                }
+                            }
+                        }
                     }
                 }
                 Spacer()
                 Text("\(summary.totalCount)")
-                    .font(.title3.bold().monospacedDigit())
+                    .font(.system(size: 20, weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme))
                 Text("completions")
                     .font(.caption)
@@ -223,13 +245,20 @@ private struct TrackerHeatmapGrid: View {
             cols.append(column)
         }
 
-        // Month labels
+        // Month labels — skip a label if it would crowd the previous one.
+        // "Mar" rendered at 9pt is wider than a single column, so we require
+        // at least 3 columns of separation between consecutive labels.
+        let minColSpacing = 3
         var labels: [(String, Int)] = []
         var lastMonth = -1
         for col in 0..<numColumns {
             guard let date = cal.date(byAdding: .day, value: col * 7, to: gridStart) else { continue }
             let month = cal.component(.month, from: date)
             if month != lastMonth {
+                if let last = labels.last, col - last.1 < minColSpacing {
+                    // Drop the prior label — the current (longer-spanning) month wins.
+                    labels.removeLast()
+                }
                 labels.append((Self.monthFormatter.string(from: date), col))
                 lastMonth = month
             }

@@ -108,4 +108,31 @@ enum HeatmapTheme {
             ? Color.white.opacity(0.35)
             : Color.black.opacity(0.3)
     }
+
+    // MARK: Warm accent (streaks / energy)
+
+    static func accentWarm(for scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 1.0, green: 0.74, blue: 0.30)   // warm gold
+            : Color(red: 0.82, green: 0.52, blue: 0.10)   // deep amber
+    }
+
+    // MARK: Typography
+
+    static let statNumber: Font = .system(size: 28, weight: .bold, design: .rounded)
+    static let statLabel: Font = .system(size: 11, weight: .medium)
+    static let sectionTitle: Font = .system(size: 11, weight: .semibold)
+
+    // MARK: Greeting
+
+    static var greeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 0..<5:   return "Burning the midnight oil"
+        case 5..<12:  return "Good morning"
+        case 12..<17: return "Good afternoon"
+        case 17..<21: return "Good evening"
+        default:      return "Wrapping up the day"
+        }
+    }
 }

@@ -8,18 +8,24 @@ struct MenuBarView: View {
     var body: some View {
         VStack(spacing: 12) {
             // Header
-            HStack {
-                Text("PLOTTED")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(HeatmapTheme.greeting)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.primary)
+                    Text("PLOTTED")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .tracking(1.5)
+                }
                 Spacer()
                 if manager.streak > 0 {
                     HStack(spacing: 3) {
                         Image(systemName: "flame.fill")
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(HeatmapTheme.accentWarm(for: colorScheme))
                         Text("\(manager.streak)d")
-                            .font(.caption.bold().monospacedDigit())
+                            .font(.system(size: 12, weight: .bold, design: .rounded).monospacedDigit())
                     }
                 }
             }
@@ -43,7 +49,7 @@ struct MenuBarView: View {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(manager.dailyGoalMet
                                 ? HeatmapTheme.accentGreen(for: colorScheme)
-                                : .orange)
+                                : HeatmapTheme.accentWarm(for: colorScheme))
                             .frame(width: geo.size.width * manager.dailyGoalProgress)
                     }
                 }
@@ -55,6 +61,24 @@ struct MenuBarView: View {
                 menuStat(label: "This Week", value: "\(manager.weekCount)")
                 if manager.streakFreezeUsedToday {
                     menuStat(label: "Freeze", value: "❄️")
+                }
+            }
+
+            // Nearest milestone
+            if let nearest = manager.milestones
+                .filter({ !$0.isExpired })
+                .min(by: { $0.daysRemaining < $1.daysRemaining }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(HeatmapTheme.accentWarm(for: colorScheme))
+                    Text(nearest.name)
+                        .font(.system(size: 11))
+                        .lineLimit(1)
+                    Spacer()
+                    Text("\(nearest.daysRemaining)d")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
             }
 
