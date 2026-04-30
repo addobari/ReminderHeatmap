@@ -6,6 +6,25 @@
         <description>Most recent updates for Plotted</description>
         <language>en</language>
         <item>
+            <title>Version 1.3.2</title>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>1.3.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>What's New in Plotted 1.3.2</h2>
+                <ul>
+                    <li>Fixed: widgets now register with macOS again. Restored the App Sandbox entitlement on the widget extension, which is required for chronod to launch the extension. Heatmap, Tracker, Streak, Today, and Week-Compare widgets are usable from Notification Center and the desktop.</li>
+                    <li>Properly code-signed with hardened runtime.</li>
+                </ul>
+            ]]></description>
+            <pubDate>Wed, 30 Apr 2026 00:53:00 +0000</pubDate>
+            <enclosure
+                url="https://github.com/addobari/ReminderHeatmap/releases/download/v1.3.2/Plotted-v1.3.2.zip"
+                sparkle:edSignature="OJmOEjWOHNBdwWu25XT+quCVEYl6CpgtRzLwiI0LalBLW/LyKQ4DfoMXmnZE3jeUjcR4BGUDFwoM8UFrZ6AnDw=="
+                length="2410887"
+                type="application/octet-stream"/>
+        </item>
+        <item>
             <title>Version 1.3.1</title>
             <sparkle:version>4</sparkle:version>
             <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
