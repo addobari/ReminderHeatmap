@@ -9,40 +9,60 @@ struct SystemView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                // Health header
-                healthHeader
+            VStack(spacing: 22) {
+                // 1. Page header — serif identity statement + balance ring
+                pageHeader
+                    .padding(.horizontal, 20)
 
-                // Domains
-                sectionLabel("DOMAINS")
-                domainsCard
-                    .padding(.horizontal)
+                Divider()
+                    .opacity(0.4)
+                    .padding(.horizontal, 20)
 
-                // Capacity
-                sectionLabel("CAPACITY")
-                capacityCard
-                    .padding(.horizontal)
+                // 2. Domains
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel("DOMAINS")
+                    domainsCard
+                }
+                .padding(.horizontal, 20)
 
-                // Compounding curves
+                // 3. Capacity
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel("CAPACITY")
+                    capacityCard
+                }
+                .padding(.horizontal, 20)
+
+                // 4. Compounding curves
                 let activeMilestones = milestones.filter { !$0.isExpired && system.compoundingCurves[$0.id] != nil }
                 if !activeMilestones.isEmpty {
-                    sectionLabel("GROWTH")
-                    ForEach(activeMilestones) { milestone in
-                        if let curve = system.compoundingCurves[milestone.id] {
-                            compoundingCard(milestone: milestone, curve: curve)
-                                .padding(.horizontal)
+                    VStack(alignment: .leading, spacing: 8) {
+                        sectionLabel("GROWTH")
+                        VStack(spacing: 12) {
+                            ForEach(activeMilestones) { milestone in
+                                if let curve = system.compoundingCurves[milestone.id] {
+                                    compoundingCard(milestone: milestone, curve: curve)
+                                }
+                            }
                         }
                     }
+                    .padding(.horizontal, 20)
                 }
 
-                // Connections
-                if behavior.keystoneHabit != nil || !behavior.correlations.isEmpty {
-                    sectionLabel("CONNECTIONS")
-                    connectionsCard
-                        .padding(.horizontal)
+                // 5. Connections — narrative card
+                if let connections = connectionsNarrative {
+                    NarrativeCard(
+                        icon: "link.circle.fill",
+                        iconColor: HeatmapTheme.accentGreen(for: colorScheme),
+                        title: "Your system at a glance",
+                        subtitle: connections.subtitle,
+                        bullets: connections.bullets,
+                        accentColor: HeatmapTheme.accentGreen(for: colorScheme)
+                    )
+                    .padding(.horizontal, 20)
                 }
             }
-            .padding(.vertical)
+            .padding(.top, 18)
+            .padding(.bottom, 18)
         }
         .navigationTitle("System")
     }
@@ -50,51 +70,58 @@ struct SystemView: View {
     // MARK: - Section Label
 
     private func sectionLabel(_ title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(HeatmapTheme.sectionTitle)
-                .foregroundStyle(.secondary)
-                .tracking(1)
-            Spacer()
-        }
-        .padding(.horizontal)
-        .padding(.top, 4)
+        Text(title)
+            .font(HeatmapTheme.sectionTitle)
+            .foregroundStyle(.secondary)
+            .tracking(1)
     }
 
-    // MARK: - Health Header
+    // MARK: - Page Header (serif identity + balance ring)
 
-    private var healthHeader: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
+    private var pageHeader: some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(behavior.identityStatement)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 26, weight: .regular, design: .serif))
                     .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Text(system.health.message)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
+
+            Spacer(minLength: 12)
+
             balanceRing
         }
-        .padding(.horizontal)
     }
 
     private var balanceRing: some View {
         ZStack {
             Circle()
-                .stroke(HeatmapTheme.emptyColor(for: colorScheme), lineWidth: 4)
-                .frame(width: 40, height: 40)
+                .stroke(HeatmapTheme.emptyColor(for: colorScheme), lineWidth: 5)
+                .frame(width: 54, height: 54)
             Circle()
                 .trim(from: 0, to: system.health.balanceScore)
                 .stroke(
                     balanceColor,
-                    style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round)
                 )
-                .frame(width: 40, height: 40)
+                .frame(width: 54, height: 54)
                 .rotationEffect(.degrees(-90))
-            Text("\(Int(system.health.balanceScore * 100))")
-                .font(.system(size: 11, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                Text("\(Int(system.health.balanceScore * 100))")
+                    .font(.system(size: 15, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.primary)
+                Text("balance")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .tracking(0.4)
+            }
         }
     }
 
@@ -139,7 +166,7 @@ struct SystemView: View {
             }
         }
         .padding(14)
-        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 14))
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 
     @ViewBuilder
@@ -207,7 +234,7 @@ struct SystemView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(14)
-        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 14))
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var loadColor: Color {
@@ -293,51 +320,55 @@ struct SystemView: View {
             }
         }
         .padding(14)
-        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 14))
+        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Connections Card
+    // MARK: - Connections (narrative)
 
-    private var connectionsCard: some View {
-        VStack(spacing: 8) {
-            if let keystone = behavior.keystoneHabit {
-                connectionRow(
+    private var connectionsNarrative: (subtitle: String, bullets: [NarrativeBullet])? {
+        var bullets: [NarrativeBullet] = []
+
+        if let keystone = behavior.keystoneHabit {
+            bullets.append(
+                NarrativeBullet(
                     icon: "key.fill",
-                    color: HeatmapTheme.accentWarm(for: colorScheme),
+                    iconColor: HeatmapTheme.accentWarm(for: colorScheme),
                     text: keystone.message
                 )
-            }
+            )
+        }
 
-            ForEach(behavior.correlations.prefix(3)) { corr in
-                connectionRow(
+        for corr in behavior.correlations.prefix(3) {
+            bullets.append(
+                NarrativeBullet(
                     icon: "link",
-                    color: HeatmapTheme.accentGreen(for: colorScheme),
+                    iconColor: HeatmapTheme.accentGreen(for: colorScheme),
                     text: corr.message
                 )
-            }
+            )
+        }
 
-            if let signal = behavior.sustainability {
-                connectionRow(
+        if let signal = behavior.sustainability {
+            bullets.append(
+                NarrativeBullet(
                     icon: signal.trend == .spiking ? "exclamationmark.triangle" : "arrow.down.right",
-                    color: signal.trend == .spiking ? .orange : .blue,
+                    iconColor: signal.trend == .spiking ? .orange : .blue,
                     text: signal.message
                 )
-            }
+            )
         }
-        .padding(14)
-        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 14))
-    }
 
-    private func connectionRow(icon: String, color: Color, text: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 11))
-                .foregroundStyle(color)
-                .frame(width: 18)
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(.primary)
-            Spacer()
+        guard !bullets.isEmpty else { return nil }
+
+        let subtitle: String
+        if behavior.keystoneHabit != nil {
+            subtitle = "Patterns linking your habits together"
+        } else if !behavior.correlations.isEmpty {
+            subtitle = "How your behaviors reinforce each other"
+        } else {
+            subtitle = "Signals from your recent activity"
         }
+
+        return (subtitle, bullets)
     }
 }

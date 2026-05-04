@@ -28,7 +28,7 @@ struct ReminderHeatmapApp: App {
                 .keyboardShortcut("1", modifiers: .command)
 
                 NavigationStack {
-                    TrackersView(summaries: manager.trackerSummaries, milestones: manager.milestones)
+                    TrackersView(summaries: manager.trackerSummaries, milestones: manager.milestones, manager: manager)
                         .navigationTitle("Trackers")
                 }
                 .tabItem {

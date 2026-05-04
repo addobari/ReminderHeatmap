@@ -9,54 +9,66 @@ struct ContentView: View {
     @State private var showMilestoneCreate = false
     @State private var editingMilestone: Milestone?
     @State private var todayExpanded = false
+    @State private var showNewReminder = false
+    @State private var editingReminder: ReminderManager.EditableReminder?
+    @State private var deleteConfirmation: ReminderManager.EditableReminder?
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(spacing: 22) {
                 if !manager.isAuthorized {
                     permissionSection
                 }
 
                 if manager.isAuthorized {
-                    // 1. Greeting + stats
-                    greetingHeader
-                        .padding(.horizontal)
+                    // 1. Page header — serif date + stats + weekday rhythm
+                    pageHeader
+                        .padding(.horizontal, 20)
 
-                    // 2. Milestones
-                    milestonesSection
-                        .padding(.horizontal)
+                    Divider()
+                        .opacity(0.4)
+                        .padding(.horizontal, 20)
 
-                    // 3. Heatmap — the hero
+                    // 2. Keystone Habit (only when present)
+                    if let keystone = manager.behaviorIntelligence.keystoneHabit {
+                        keystoneCard(keystone)
+                            .padding(.horizontal, 20)
+                    }
+
+                    // 3. Today task list with progress bar
+                    todayCard
+                        .padding(.horizontal, 20)
+
+                    // 4. Active goal(s)
+                    activeGoalsSection
+                        .padding(.horizontal, 20)
+
+                    // 5. Heatmap (kept per request)
                     heatmapCard
-                        .padding(.horizontal)
+                        .padding(.horizontal, 20)
 
-                    // 4. Today section
-                    if manager.yearDays.isEmpty && manager.todayCount == 0 {
-                        emptyStateCoaching
-                            .padding(.horizontal)
-                    } else {
-                        todaySection
-                            .padding(.horizontal)
-                    }
-
-                    // Last updated footer
-                    HStack {
-                        if let sync = manager.lastSyncDate {
-                            Text("Updated \(sync.formatted(.relative(presentation: .named)))")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.quaternary)
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal)
+                    // 6. Footer
+                    footer
+                        .padding(.horizontal, 20)
                 }
             }
-            .padding(.vertical)
+            .padding(.top, 76)
+            .padding(.bottom, 18)
         }
-        .navigationTitle("Plotted")
+        .navigationTitle("")
         .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    showNewReminder = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .disabled(!manager.isAuthorized)
+                .help("New reminder")
+                .keyboardShortcut("n", modifiers: .command)
+            }
             ToolbarItem(placement: .automatic) {
                 Button {
                     showSettings = true
@@ -74,7 +86,23 @@ struct ContentView: View {
                 .frame(minWidth: 400, minHeight: 500)
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView()
+            SettingsView(manager: manager)
+        }
+        .sheet(isPresented: $showNewReminder) {
+            NewReminderView(manager: manager)
+        }
+        .sheet(item: $editingReminder) { editing in
+            NewReminderView(manager: manager, editing: editing)
+        }
+        .alert(item: $deleteConfirmation) { target in
+            Alert(
+                title: Text("Delete \"\(target.title)\"?"),
+                message: Text("This removes it from Apple Reminders everywhere it syncs."),
+                primaryButton: .destructive(Text("Delete")) {
+                    Task { await manager.deleteReminder(reminderID: target.id) }
+                },
+                secondaryButton: .cancel()
+            )
         }
         .sheet(isPresented: $showMilestoneCreate) {
             MilestoneCreateView(
@@ -110,6 +138,237 @@ struct ContentView: View {
                     showGoalCelebration = true
                 }
             }
+        }
+    }
+
+    // MARK: - Page Header (serif date + stats + weekday rhythm)
+
+    private var pageHeader: some View {
+        let chips = WeekRhythm.currentWeekChips(rollingDays: manager.days)
+        let activeThisWeek = chips.filter { !$0.isFuture && $0.count > 0 }.count
+        let yearActiveDays = pastDays.filter { $0.count > 0 }.count
+
+        return VStack(alignment: .leading, spacing: 14) {
+            // Big serif date
+            Text(longDateString)
+                .font(.system(size: 30, weight: .regular, design: .serif))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            // Stats triplet
+            HStack(spacing: 18) {
+                statTriplet(value: "\(manager.weekCount)", label: "this week")
+                statTriplet(value: "\(manager.todayCount)", label: "of \(manager.dailyGoal) today",
+                            valueColor: manager.dailyGoalMet ? HeatmapTheme.accentGreen(for: colorScheme) : .primary)
+                statTriplet(value: "\(yearActiveDays)", label: "active days")
+                Spacer(minLength: 0)
+            }
+
+            // Day-of-week chips + summary line
+            HStack(alignment: .center, spacing: 12) {
+                HStack(spacing: 6) {
+                    ForEach(chips) { chip in
+                        weekdayChip(chip)
+                    }
+                }
+
+                Text("\(activeThisWeek)/7 this week")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                + Text(" · ")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                + Text("\(manager.streak)-day streak")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(manager.streak > 0 ? HeatmapTheme.accentWarm(for: colorScheme) : .secondary)
+
+                Spacer(minLength: 0)
+
+                Text("Week \(weeksOfTracking) of tracking")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func statTriplet(value: String, label: String, valueColor: Color = .primary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(value)
+                .font(.system(size: 22, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(valueColor)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func weekdayChip(_ chip: WeekdayChipState) -> some View {
+        let green = HeatmapTheme.accentGreen(for: colorScheme)
+        let size: CGFloat = 22
+
+        return ZStack {
+            if chip.isFuture {
+                Circle()
+                    .strokeBorder(HeatmapTheme.emptyColor(for: colorScheme), lineWidth: 1)
+                    .frame(width: size, height: size)
+                Text(chip.letter)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            } else if chip.isToday {
+                Circle()
+                    .strokeBorder(green, lineWidth: 2)
+                    .frame(width: size, height: size)
+                if chip.count > 0 {
+                    Circle()
+                        .fill(green.opacity(0.18))
+                        .frame(width: size - 4, height: size - 4)
+                }
+                Text(chip.letter)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(green)
+            } else if chip.count > 0 {
+                Circle()
+                    .fill(green)
+                    .frame(width: size, height: size)
+                Text(chip.letter)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white)
+            } else {
+                Circle()
+                    .fill(HeatmapTheme.emptyColor(for: colorScheme))
+                    .frame(width: size, height: size)
+                Text(chip.letter)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private var longDateString: String {
+        let f = DateFormatter()
+        f.dateFormat = "EEEE, MMM d"
+        return f.string(from: Date())
+    }
+
+    /// Approximate weeks of tracking based on earliest known year.
+    private var weeksOfTracking: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        guard let janFirst = calendar.date(from: DateComponents(year: manager.earliestYear, month: 1, day: 1)) else {
+            return 1
+        }
+        // Use earliest non-zero day in yearDays as a more accurate start when available.
+        let firstActive = manager.yearDays.first(where: { $0.count > 0 })?.date ?? janFirst
+        let startDate = max(firstActive, janFirst)
+        let days = calendar.dateComponents([.day], from: startDate, to: today).day ?? 0
+        return max(1, (days / 7) + 1)
+    }
+
+    // MARK: - Keystone Habit Card
+
+    private func keystoneCard(_ keystone: BehaviorIntelligence.KeystoneHabit) -> some View {
+        let green = HeatmapTheme.accentGreen(for: colorScheme)
+        let message = KeystoneMessageBuilder.build(
+            keystone: keystone,
+            insights: manager.insights,
+            currentDayReminders: manager.currentDayReminders
+        )
+
+        let bg: Color = colorScheme == .dark
+            ? Color(red: 0.075, green: 0.18, blue: 0.11)
+            : Color(red: 0.91, green: 0.97, blue: 0.93)
+
+        return HStack(alignment: .top, spacing: 0) {
+            Rectangle()
+                .fill(green)
+                .frame(width: 3)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 5) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(green)
+                    Text("KEYSTONE HABIT")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(green)
+                }
+                styledKeystoneText(message, trackerName: keystone.trackerName, accent: green)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            Spacer(minLength: 0)
+        }
+        .background(bg, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Render the keystone message with the tracker name bolded.
+    private func styledKeystoneText(_ message: String, trackerName: String, accent: Color) -> Text {
+        // Rough heuristic: split on the tracker name to bold it.
+        let parts = message.components(separatedBy: trackerName)
+        guard parts.count >= 2 else {
+            return Text(message)
+        }
+        var result = Text(parts[0])
+        for i in 1..<parts.count {
+            result = result + Text(trackerName).fontWeight(.semibold).foregroundStyle(accent)
+            result = result + Text(parts[i])
+        }
+        return result
+    }
+
+    // MARK: - Footer
+
+    @ViewBuilder
+    private var footer: some View {
+        if let sync = manager.lastSyncDate {
+            HStack {
+                Text("Updated \(sync.formatted(.relative(presentation: .named)))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.quaternary)
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - Active Goals Section
+
+    @ViewBuilder
+    private var activeGoalsSection: some View {
+        let sorted = manager.milestones.sorted { a, b in
+            if a.isExpired != b.isExpired { return !a.isExpired }
+            return a.daysRemaining < b.daysRemaining
+        }
+        let activeCount = sorted.filter { !$0.isExpired }.count
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(activeCount == 1 ? "ACTIVE GOAL" : "ACTIVE GOALS")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                if !sorted.isEmpty {
+                    Button {
+                        showMilestoneCreate = true
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text("Add")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            milestonesSection
         }
     }
 
@@ -177,78 +436,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Greeting Header
-
-    private var greetingHeader: some View {
-        let bi = manager.behaviorIntelligence
-        return HStack(alignment: .bottom, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(bi.identityStatement)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        if manager.streak > 0 {
-                            Image(systemName: "flame.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(HeatmapTheme.accentWarm(for: colorScheme))
-                        }
-                        Text("\(manager.streak)")
-                            .font(HeatmapTheme.statNumber)
-                            .foregroundStyle(manager.streak > 0 ? HeatmapTheme.accentWarm(for: colorScheme) : .secondary)
-                        Text("streak")
-                            .font(HeatmapTheme.statLabel)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(manager.weekCount)")
-                            .font(HeatmapTheme.statNumber)
-                        Text("this week")
-                            .font(HeatmapTheme.statLabel)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(manager.todayCount)")
-                            .font(HeatmapTheme.statNumber)
-                            .foregroundStyle(manager.dailyGoalMet ? HeatmapTheme.accentGreen(for: colorScheme) : .primary)
-                        Text("of \(manager.dailyGoal) today")
-                            .font(HeatmapTheme.statLabel)
-                            .foregroundStyle(.secondary)
-                        if manager.streakFreezeUsedToday {
-                            Image(systemName: "snowflake")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.cyan)
-                        }
-                    }
-                }
-            }
-            Spacer()
-        }
-    }
-
-    // MARK: - Empty State
-
-    private var emptyStateCoaching: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "leaf.fill")
-                .font(.system(size: 32))
-                .foregroundStyle(HeatmapTheme.accentGreen(for: colorScheme).opacity(0.5))
-            Text("Complete a reminder to plant your first green square")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Text("Every completed task lights up your heatmap")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
-        .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    // MARK: - Today Section
+    // MARK: - Today Card (new design: progress bar header + checkbox list)
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -256,73 +444,238 @@ struct ContentView: View {
         return f
     }()
 
-    private var todaySection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
+    private var todayCard: some View {
+        let goal = max(manager.dailyGoal, 1)
+        let progress = min(Double(manager.todayCount) / Double(goal), 1.0)
+        let keystoneName = manager.behaviorIntelligence.keystoneHabit?.trackerName
+
+        // Build the unified task list: completed reminders first, then today's
+        // recurring habits that haven't been done yet.
+        let completed = manager.currentDayReminders
+        let completedTitles = Set(completed.map(\.title))
+        let openHabits: [TrackerSummary] = manager.trackerSummaries.filter { summary in
+            // not done yet today (today is summary.days.last when ascending) and
+            // it's an actually-active habit (not a long-dormant or one-off).
+            let todayDone = summary.days.last?.count ?? 0
+            guard todayDone == 0 else { return false }
+            // Has had any completion in last 14 days → likely current habit
+            let recent14 = summary.days.suffix(14).reduce(0) { $0 + $1.count }
+            return recent14 >= 1 || !completedTitles.contains(summary.reminderTitle)
+                && summary.totalCount >= 1
+        }
+        // Cap each list to keep card visually tight unless expanded.
+        let completedLimit = todayExpanded ? completed.count : 5
+        let openLimit = todayExpanded ? openHabits.count : 6
+        let extraCount = (completed.count - completedLimit) + (openHabits.count - openLimit)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            // Header row
+            HStack(alignment: .firstTextBaseline) {
                 Text("TODAY")
-                    .font(HeatmapTheme.sectionTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
                     .foregroundStyle(.secondary)
-                    .tracking(1)
                 Spacer()
-                if manager.todayCount > 0 {
-                    Text("\(manager.todayCount) completed")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                }
+                Text("\(manager.todayCount) / \(manager.dailyGoal)")
+                    .font(.system(size: 12, weight: .medium, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
 
-            if manager.currentDayReminders.isEmpty {
-                Text("Your day is wide open")
-                    .font(.callout)
-                    .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
-            } else {
-                let limit = todayExpanded ? manager.currentDayReminders.count : 8
-                let visible = Array(manager.currentDayReminders.prefix(limit))
-                ForEach(Array(visible.enumerated()), id: \.element.id) { index, reminder in
-                    if index > 0 {
-                        Divider()
-                            .background(.primary.opacity(0.08))
-                            .padding(.leading, 14)
-                    }
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(ListColorPalette.color(for: reminder.listColorIndex))
-                            .frame(width: 7, height: 7)
-                        Text(reminder.title)
-                            .font(.callout)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(reminder.listName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(Self.timeFormatter.string(from: reminder.completionTime))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+            // Progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(HeatmapTheme.emptyColor(for: colorScheme))
+                    Rectangle()
+                        .fill(manager.dailyGoalMet
+                              ? HeatmapTheme.accentGreen(for: colorScheme)
+                              : HeatmapTheme.accentGreen(for: colorScheme).opacity(0.7))
+                        .frame(width: geo.size.width * progress)
                 }
-                if manager.currentDayReminders.count > 8 {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            todayExpanded.toggle()
-                        }
-                    } label: {
-                        Text(todayExpanded ? "Show less" : "…and \(manager.currentDayReminders.count - 8) more")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+            }
+            .frame(height: 2)
+
+            // Body
+            if completed.isEmpty && openHabits.isEmpty {
+                VStack(spacing: 6) {
+                    Text("Your day is wide open")
+                        .font(.callout)
+                        .foregroundStyle(HeatmapTheme.mutedText(for: colorScheme))
+                    Text("Every completed task lights up your heatmap.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 26)
+            } else {
+                VStack(spacing: 0) {
+                    // Completed (checkmark + strikethrough)
+                    ForEach(Array(completed.prefix(completedLimit).enumerated()), id: \.element.id) { idx, reminder in
+                        if idx > 0 { taskDivider }
+                        completedRow(reminder)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
+
+                    if !completed.isEmpty && !openHabits.isEmpty {
+                        taskDivider
+                    }
+
+                    // Open habits (empty circle, optional keystone tag)
+                    ForEach(Array(openHabits.prefix(openLimit).enumerated()), id: \.offset) { idx, habit in
+                        if idx > 0 { taskDivider }
+                        openHabitRow(habit, isKeystone: habit.reminderTitle == keystoneName)
+                    }
+
+                    if extraCount > 0 || todayExpanded {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) { todayExpanded.toggle() }
+                        } label: {
+                            Text(todayExpanded ? "Show less" : "…and \(extraCount) more")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }
         .background(HeatmapTheme.cardBackground(for: colorScheme), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var taskDivider: some View {
+        Divider()
+            .background(.primary.opacity(0.06))
+            .padding(.leading, 38)
+    }
+
+    private func completedRow(_ reminder: CompletedReminder) -> some View {
+        let green = HeatmapTheme.accentGreen(for: colorScheme)
+        return Button {
+            guard !reminder.reminderIdentifier.isEmpty else { return }
+            Task { await manager.uncompleteReminder(reminderID: reminder.reminderIdentifier) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(green)
+                Text(reminder.title)
+                    .font(.system(size: 13))
+                    .strikethrough(true, color: .secondary.opacity(0.6))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                Text(Self.timeFormatter.string(from: reminder.completionTime))
+                    .font(.system(size: 11, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Tap to uncomplete")
+        .contextMenu {
+            Button("Uncomplete") {
+                guard !reminder.reminderIdentifier.isEmpty else { return }
+                Task { await manager.uncompleteReminder(reminderID: reminder.reminderIdentifier) }
+            }
+            Button("Edit…") {
+                guard !reminder.reminderIdentifier.isEmpty else { return }
+                Task {
+                    if let editable = await manager.loadEditableReminder(reminderID: reminder.reminderIdentifier) {
+                        editingReminder = editable
+                    }
+                }
+            }
+            Divider()
+            Button("Delete…", role: .destructive) {
+                guard !reminder.reminderIdentifier.isEmpty else { return }
+                Task {
+                    if let editable = await manager.loadEditableReminder(reminderID: reminder.reminderIdentifier) {
+                        deleteConfirmation = editable
+                    }
+                }
+            }
+        }
+    }
+
+    private func openHabitRow(_ habit: TrackerSummary, isKeystone: Bool) -> some View {
+        let green = HeatmapTheme.accentGreen(for: colorScheme)
+        return Button {
+            Task {
+                await manager.completeReminder(
+                    title: habit.reminderTitle,
+                    calendarIdentifier: habit.calendarIdentifier
+                )
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary.opacity(0.5))
+                Text(habit.reminderTitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer()
+                if isKeystone {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("keystone")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    }
+                    .foregroundStyle(green)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+            .overlay(alignment: .leading) {
+                if isKeystone {
+                    Rectangle()
+                        .fill(green)
+                        .frame(width: 2)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Tap to mark done")
+        .contextMenu {
+            Button("Mark done") {
+                Task {
+                    await manager.completeReminder(
+                        title: habit.reminderTitle,
+                        calendarIdentifier: habit.calendarIdentifier
+                    )
+                }
+            }
+            Button("Edit…") {
+                Task {
+                    if let editable = await manager.loadEditableReminder(
+                        title: habit.reminderTitle,
+                        calendarIdentifier: habit.calendarIdentifier
+                    ) {
+                        editingReminder = editable
+                    }
+                }
+            }
+            Divider()
+            Button("Delete…", role: .destructive) {
+                Task {
+                    if let editable = await manager.loadEditableReminder(
+                        title: habit.reminderTitle,
+                        calendarIdentifier: habit.calendarIdentifier
+                    ) {
+                        deleteConfirmation = editable
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Heatmap Card

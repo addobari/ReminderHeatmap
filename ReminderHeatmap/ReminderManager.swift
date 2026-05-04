@@ -26,6 +26,7 @@ final class ReminderManager: ObservableObject {
     @Published var milestones: [Milestone] = []
     @Published var isCalendarAuthorized = false
     @Published var calendarEvents: [CalendarEvent] = []
+    @Published var availableLists: [ReminderListInfo] = []
 
     var behaviorIntelligence: BehaviorIntelligence {
         BehaviorIntelligence.compute(
@@ -118,8 +119,10 @@ final class ReminderManager: ObservableObject {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
 
+        let excludedIDs = ExcludedListsStore.current()
+
         // Rolling 90-day window for stats (streak + weekCount), independent of year
-        let rollingDays = await HeatmapData.shared.fetchDays(last: 90)
+        let rollingDays = await HeatmapData.shared.fetchDays(last: 90, excludedListIDs: excludedIDs)
 
         let countByDate: [Date: Int] = Dictionary(
             rollingDays.map { (calendar.startOfDay(for: $0.date), $0.count) },
@@ -164,14 +167,7 @@ final class ReminderManager: ObservableObject {
 
         // Year grid data for the selected year
         let targetYear = selectedYear
-        let fetchedYearDays: [HeatmapDay]
-        if targetYear == currentYear {
-            // Reuse rolling 90-day data: it covers recent days; fetch the full year
-            // but the rolling data already warmed the cache for overlapping dates
-            fetchedYearDays = await HeatmapData.shared.fetchYearData(year: targetYear)
-        } else {
-            fetchedYearDays = await HeatmapData.shared.fetchYearData(year: targetYear)
-        }
+        let fetchedYearDays = await HeatmapData.shared.fetchYearData(year: targetYear, excludedListIDs: excludedIDs)
         guard selectedYear == targetYear else { return }
         yearDays = fetchedYearDays
 
@@ -195,10 +191,13 @@ final class ReminderManager: ObservableObject {
         // Deferred: earliest year and tracker data (non-blocking for main UI)
         earliestYear = await HeatmapData.shared.earliestCompletionYear()
 
-        let trackerData = await HeatmapData.shared.fetchTrackerData(last: 30)
+        let trackerData = await HeatmapData.shared.fetchTrackerData(last: 30, excludedListIDs: excludedIDs)
         trackerSummaries = trackerData.summaries
 
-        timeIntelligence = await HeatmapData.shared.fetchTimeIntelligence(last: 90)
+        timeIntelligence = await HeatmapData.shared.fetchTimeIntelligence(last: 90, excludedListIDs: excludedIDs)
+
+        // Refresh the list of available reminder lists so Settings can show them
+        availableLists = await HeatmapData.shared.availableLists()
 
         // Calendar events (if authorized)
         await fetchCalendarEvents()
@@ -211,7 +210,8 @@ final class ReminderManager: ObservableObject {
         isFetching = true
         defer { isFetching = false }
         let targetYear = year
-        let fetchedDays = await HeatmapData.shared.fetchYearData(year: targetYear)
+        let excludedIDs = ExcludedListsStore.current()
+        let fetchedDays = await HeatmapData.shared.fetchYearData(year: targetYear, excludedListIDs: excludedIDs)
         guard selectedYear == targetYear else { return }
         yearDays = fetchedDays
     }
@@ -223,6 +223,283 @@ final class ReminderManager: ObservableObject {
 
     func markNeedsRefresh() {
         needsRefresh = true
+    }
+
+    // MARK: - Reminder Write Operations
+
+    /// Mark an open reminder as completed. Looks up an incomplete reminder by
+    /// title in the given calendar (preferring the soonest due) and toggles it
+    /// to complete. Returns true on success.
+    @discardableResult
+    func completeReminder(title: String, calendarIdentifier: String) async -> Bool {
+        guard isAuthorized else { return false }
+        guard let calendar = store.calendar(withIdentifier: calendarIdentifier) else { return false }
+
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil,
+            ending: nil,
+            calendars: [calendar]
+        )
+
+        let reminders: [EKReminder] = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+
+        // Prefer reminders matching the title, soonest due first; fall back to
+        // any title match. Trim whitespace + case-insensitive comparison.
+        let normalizedTarget = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let matches = reminders.filter {
+            ($0.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedTarget
+        }
+        let sorted = matches.sorted { lhs, rhs in
+            let lhsDate = lhs.dueDateComponents?.date ?? .distantFuture
+            let rhsDate = rhs.dueDateComponents?.date ?? .distantFuture
+            return lhsDate < rhsDate
+        }
+
+        guard let target = sorted.first else { return false }
+
+        target.isCompleted = true
+        target.completionDate = Date()
+
+        do {
+            try store.save(target, commit: true)
+            markNeedsRefresh()
+            await refreshIfNeeded()
+            WidgetCenter.shared.reloadAllTimelines()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Recurrence options for newly-created reminders.
+    enum RecurrenceOption: String, CaseIterable, Identifiable {
+        case none, daily, weekly, monthly, yearly
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .none:    return "Never"
+            case .daily:   return "Every day"
+            case .weekly:  return "Every week"
+            case .monthly: return "Every month"
+            case .yearly:  return "Every year"
+            }
+        }
+
+        fileprivate var ekFrequency: EKRecurrenceFrequency? {
+            switch self {
+            case .none:    return nil
+            case .daily:   return .daily
+            case .weekly:  return .weekly
+            case .monthly: return .monthly
+            case .yearly:  return .yearly
+            }
+        }
+
+        fileprivate static func from(_ rule: EKRecurrenceRule?) -> RecurrenceOption {
+            guard let rule else { return .none }
+            switch rule.frequency {
+            case .daily:   return .daily
+            case .weekly:  return .weekly
+            case .monthly: return .monthly
+            case .yearly:  return .yearly
+            @unknown default: return .none
+            }
+        }
+    }
+
+    /// A flattened editable view of an EKReminder used by the reminder editor sheet.
+    struct EditableReminder: Equatable, Identifiable {
+        let id: String                  // EKReminder.calendarItemIdentifier
+        var title: String
+        var calendarIdentifier: String
+        var dueDate: Date?
+        var recurrence: RecurrenceOption
+        var notes: String
+    }
+
+    /// Create a new EKReminder in the specified list and save it. Returns true
+    /// on success.
+    @discardableResult
+    func createReminder(
+        title: String,
+        calendarIdentifier: String,
+        dueDate: Date? = nil,
+        recurrence: RecurrenceOption = .none,
+        notes: String? = nil
+    ) async -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, isAuthorized else { return false }
+        guard let calendar = store.calendar(withIdentifier: calendarIdentifier) else { return false }
+
+        let reminder = EKReminder(eventStore: store)
+        reminder.title = trimmed
+        reminder.calendar = calendar
+        if let notes, !notes.isEmpty { reminder.notes = notes }
+
+        if let dueDate {
+            let cal = Calendar.current
+            reminder.dueDateComponents = cal.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: dueDate
+            )
+        }
+
+        if let frequency = recurrence.ekFrequency {
+            let rule = EKRecurrenceRule(recurrenceWith: frequency, interval: 1, end: nil)
+            reminder.recurrenceRules = [rule]
+        }
+
+        do {
+            try store.save(reminder, commit: true)
+            markNeedsRefresh()
+            await refreshIfNeeded()
+            WidgetCenter.shared.reloadAllTimelines()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Convert an EKReminder into a flattened EditableReminder snapshot.
+    private func makeEditable(_ reminder: EKReminder) -> EditableReminder {
+        let cal = Calendar.current
+        let due = reminder.dueDateComponents.flatMap { cal.date(from: $0) }
+        return EditableReminder(
+            id: reminder.calendarItemIdentifier,
+            title: reminder.title ?? "",
+            calendarIdentifier: reminder.calendar?.calendarIdentifier ?? "",
+            dueDate: due,
+            recurrence: RecurrenceOption.from(reminder.recurrenceRules?.first),
+            notes: reminder.notes ?? ""
+        )
+    }
+
+    /// Load an editable snapshot of an existing reminder by its calendarItemIdentifier.
+    func loadEditableReminder(reminderID: String) async -> EditableReminder? {
+        guard isAuthorized, !reminderID.isEmpty else { return nil }
+        guard let item = store.calendarItem(withIdentifier: reminderID) as? EKReminder else { return nil }
+        return makeEditable(item)
+    }
+
+    /// Find the most relevant open reminder matching a tracker (title + calendar)
+    /// and return it as an editable snapshot. Prefers reminders with a recurrence
+    /// rule (the recurring template) over one-off instances.
+    func loadEditableReminder(title: String, calendarIdentifier: String) async -> EditableReminder? {
+        guard isAuthorized else { return nil }
+        guard let calendar = store.calendar(withIdentifier: calendarIdentifier) else { return nil }
+
+        let predicate = store.predicateForReminders(in: [calendar])
+        let reminders: [EKReminder] = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let matches = reminders.filter {
+            ($0.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized
+        }
+        // Prefer recurring template; then incomplete; then most recent.
+        let sorted = matches.sorted { lhs, rhs in
+            let lhsRec = (lhs.recurrenceRules?.isEmpty == false) ? 0 : 1
+            let rhsRec = (rhs.recurrenceRules?.isEmpty == false) ? 0 : 1
+            if lhsRec != rhsRec { return lhsRec < rhsRec }
+            let lhsInc = lhs.isCompleted ? 1 : 0
+            let rhsInc = rhs.isCompleted ? 1 : 0
+            if lhsInc != rhsInc { return lhsInc < rhsInc }
+            let lhsDate = lhs.lastModifiedDate ?? .distantPast
+            let rhsDate = rhs.lastModifiedDate ?? .distantPast
+            return lhsDate > rhsDate
+        }
+
+        guard let target = sorted.first else { return nil }
+        return makeEditable(target)
+    }
+
+    /// Save edits to an existing reminder. Returns true on success.
+    @discardableResult
+    func updateReminder(_ edit: EditableReminder) async -> Bool {
+        let trimmed = edit.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, isAuthorized, !edit.id.isEmpty else { return false }
+        guard let item = store.calendarItem(withIdentifier: edit.id) as? EKReminder else { return false }
+
+        item.title = trimmed
+        item.notes = edit.notes.isEmpty ? nil : edit.notes
+
+        if let newCalendar = store.calendar(withIdentifier: edit.calendarIdentifier),
+           item.calendar?.calendarIdentifier != newCalendar.calendarIdentifier {
+            item.calendar = newCalendar
+        }
+
+        if let due = edit.dueDate {
+            item.dueDateComponents = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: due
+            )
+        } else {
+            item.dueDateComponents = nil
+        }
+
+        // Recurrence: remove any existing rules, then add the desired one.
+        if let existingRules = item.recurrenceRules {
+            for rule in existingRules { item.removeRecurrenceRule(rule) }
+        }
+        if let frequency = edit.recurrence.ekFrequency {
+            item.addRecurrenceRule(EKRecurrenceRule(recurrenceWith: frequency, interval: 1, end: nil))
+        }
+
+        do {
+            try store.save(item, commit: true)
+            markNeedsRefresh()
+            await refreshIfNeeded()
+            WidgetCenter.shared.reloadAllTimelines()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Delete a reminder permanently. Returns true on success.
+    @discardableResult
+    func deleteReminder(reminderID: String) async -> Bool {
+        guard isAuthorized, !reminderID.isEmpty else { return false }
+        guard let item = store.calendarItem(withIdentifier: reminderID) as? EKReminder else { return false }
+
+        do {
+            try store.remove(item, commit: true)
+            markNeedsRefresh()
+            await refreshIfNeeded()
+            WidgetCenter.shared.reloadAllTimelines()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Mark a previously-completed reminder as not completed using its
+    /// EKReminder calendarItemIdentifier. Returns true on success.
+    @discardableResult
+    func uncompleteReminder(reminderID: String) async -> Bool {
+        guard isAuthorized, !reminderID.isEmpty else { return false }
+        guard let item = store.calendarItem(withIdentifier: reminderID) as? EKReminder else { return false }
+
+        item.isCompleted = false
+        item.completionDate = nil
+
+        do {
+            try store.save(item, commit: true)
+            markNeedsRefresh()
+            await refreshIfNeeded()
+            WidgetCenter.shared.reloadAllTimelines()
+            return true
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Milestones

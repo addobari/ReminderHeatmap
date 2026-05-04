@@ -10,6 +10,10 @@ struct CompletedReminder: Codable, Identifiable, Hashable {
     let listName: String
     let listColorIndex: Int
     let completionTime: Date
+    /// EKReminder calendarItemIdentifier — used for write operations (uncomplete).
+    var reminderIdentifier: String = ""
+    /// EKCalendar identifier the reminder belongs to.
+    var calendarIdentifier: String = ""
 }
 
 struct HeatmapDay: Codable, Identifiable, Hashable {
@@ -74,6 +78,13 @@ struct TrackerWidgetData {
         self.summaries = summaries
         self.isError = isError
     }
+}
+
+struct ReminderListInfo: Identifiable, Hashable {
+    var id: String { identifier }
+    let identifier: String
+    let title: String
+    let colorIndex: Int
 }
 
 struct TimeIntelligence {
@@ -158,7 +169,34 @@ actor HeatmapData {
 
     // MARK: - Heatmap Fetch
 
-    func fetchDays(last n: Int = 90) async -> [HeatmapDay] {
+    // MARK: - Available Lists
+
+    func availableLists() async -> [ReminderListInfo] {
+        let allCalendars = store.calendars(for: .reminder)
+        let colorMap = buildColorIndexMap(from: allCalendars)
+        return allCalendars
+            .map { cal in
+                ReminderListInfo(
+                    identifier: cal.calendarIdentifier,
+                    title: cal.title,
+                    colorIndex: colorMap[cal.calendarIdentifier] ?? 0
+                )
+            }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// Returns the EKCalendars to use for a fetch given an excluded set.
+    /// Returns `nil` if no exclusions (so EventKit's default behavior — all calendars — applies).
+    private func filteredCalendars(excluding excludedIDs: Set<String>) -> [EKCalendar]? {
+        guard !excludedIDs.isEmpty else { return nil }
+        let allCalendars = store.calendars(for: .reminder)
+        let kept = allCalendars.filter { !excludedIDs.contains($0.calendarIdentifier) }
+        // If everything is excluded, returning an empty array would crash some predicates.
+        // Fall back to nil → EventKit uses all calendars; the caller will get data anyway.
+        return kept.isEmpty ? nil : kept
+    }
+
+    func fetchDays(last n: Int = 90, excludedListIDs: Set<String> = []) async -> [HeatmapDay] {
         let calendar = Calendar.current
         let now = Date()
         guard let startDate = calendar.date(byAdding: .day, value: -n, to: calendar.startOfDay(for: now)) else {
@@ -168,7 +206,7 @@ actor HeatmapData {
         let predicate = store.predicateForCompletedReminders(
             withCompletionDateStarting: startDate,
             ending: now,
-            calendars: nil
+            calendars: filteredCalendars(excluding: excludedListIDs)
         )
 
         let reminders: [EKReminder]
@@ -194,7 +232,9 @@ actor HeatmapData {
                 title: reminder.title ?? "Untitled",
                 listName: reminder.calendar?.title ?? "Unknown",
                 listColorIndex: colorMap[reminder.calendar?.calendarIdentifier ?? ""] ?? 0,
-                completionTime: completionDate
+                completionTime: completionDate,
+                reminderIdentifier: reminder.calendarItemIdentifier,
+                calendarIdentifier: reminder.calendar?.calendarIdentifier ?? ""
             )
             dayReminders[day, default: []].append(completed)
         }
@@ -272,7 +312,7 @@ actor HeatmapData {
 
     // MARK: - Year Fetch (for app full-year view)
 
-    func fetchYearData(year: Int) async -> [HeatmapDay] {
+    func fetchYearData(year: Int, excludedListIDs: Set<String> = []) async -> [HeatmapDay] {
         let calendar = Calendar.current
         let now = Date()
 
@@ -288,7 +328,7 @@ actor HeatmapData {
         let predicate = store.predicateForCompletedReminders(
             withCompletionDateStarting: janFirst,
             ending: endDate,
-            calendars: nil
+            calendars: filteredCalendars(excluding: excludedListIDs)
         )
 
         let reminders: [EKReminder]
@@ -313,7 +353,9 @@ actor HeatmapData {
                 title: reminder.title ?? "Untitled",
                 listName: reminder.calendar?.title ?? "Unknown",
                 listColorIndex: colorMap[reminder.calendar?.calendarIdentifier ?? ""] ?? 0,
-                completionTime: completionDate
+                completionTime: completionDate,
+                reminderIdentifier: reminder.calendarItemIdentifier,
+                calendarIdentifier: reminder.calendar?.calendarIdentifier ?? ""
             )
             dayReminders[day, default: []].append(completed)
         }
@@ -371,7 +413,7 @@ actor HeatmapData {
 
     // MARK: - Tracker Fetch
 
-    func fetchTrackerData(last n: Int = 30) async -> TrackerWidgetData {
+    func fetchTrackerData(last n: Int = 30, excludedListIDs: Set<String> = []) async -> TrackerWidgetData {
         let calendar = Calendar.current
         let now = Date()
         let today = calendar.startOfDay(for: now)
@@ -381,12 +423,13 @@ actor HeatmapData {
 
         let allCalendars = store.calendars(for: .reminder)
         let colorMap = buildColorIndexMap(from: allCalendars)
+        let filtered = filteredCalendars(excluding: excludedListIDs)
 
         // Fetch completed reminders in range
         let completedPredicate = store.predicateForCompletedReminders(
             withCompletionDateStarting: startDate,
             ending: now,
-            calendars: nil
+            calendars: filtered
         )
 
         let completedReminders: [EKReminder] = await withCheckedContinuation { continuation in
@@ -399,7 +442,7 @@ actor HeatmapData {
         let incompletePredicate = store.predicateForIncompleteReminders(
             withDueDateStarting: nil,
             ending: nil,
-            calendars: nil
+            calendars: filtered
         )
 
         let incompleteReminders: [EKReminder] = await withCheckedContinuation { continuation in
@@ -437,7 +480,9 @@ actor HeatmapData {
                 title: title,
                 listName: reminder.calendar?.title ?? "Unknown",
                 listColorIndex: colorMap[calId] ?? 0,
-                completionTime: completionDate
+                completionTime: completionDate,
+                reminderIdentifier: reminder.calendarItemIdentifier,
+                calendarIdentifier: calId
             )
             completionsByKeyDate[key, default: [:]][day, default: []].append(cr)
         }
@@ -482,7 +527,7 @@ actor HeatmapData {
 
     // MARK: - Time Intelligence
 
-    func fetchTimeIntelligence(last n: Int = 90) async -> TimeIntelligence {
+    func fetchTimeIntelligence(last n: Int = 90, excludedListIDs: Set<String> = []) async -> TimeIntelligence {
         let calendar = Calendar.current
         let now = Date()
         guard let startDate = calendar.date(byAdding: .day, value: -n, to: calendar.startOfDay(for: now)) else {
@@ -492,7 +537,7 @@ actor HeatmapData {
         let predicate = store.predicateForCompletedReminders(
             withCompletionDateStarting: startDate,
             ending: now,
-            calendars: nil
+            calendars: filteredCalendars(excluding: excludedListIDs)
         )
 
         let reminders: [EKReminder]

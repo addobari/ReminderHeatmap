@@ -14,6 +14,41 @@ struct InsightsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                // Weekly digest narrative card
+                if let digest = WeeklyDigest.make(
+                    insights: insights,
+                    rollingDays: rollingDays,
+                    accentGreen: HeatmapTheme.accentGreen(for: colorScheme),
+                    accentWarm: HeatmapTheme.accentWarm(for: colorScheme)
+                ) {
+                    NarrativeCard(
+                        icon: "newspaper.fill",
+                        iconColor: HeatmapTheme.accentGreen(for: colorScheme),
+                        title: "Weekly digest",
+                        subtitle: digest.headline,
+                        bullets: digest.bullets,
+                        accentColor: HeatmapTheme.accentGreen(for: colorScheme)
+                    )
+                    .padding(.horizontal)
+                }
+
+                // Habit DNA card
+                if let dna = HabitDNA.make(
+                    insights: insights,
+                    timeIntelligence: timeIntelligence,
+                    rollingDays: rollingDays
+                ) {
+                    NarrativeCard(
+                        icon: "waveform.path.ecg",
+                        iconColor: .purple,
+                        title: "Your habit DNA",
+                        subtitle: "Peak \(dna.peakHourLabel) · \(dna.consistencyPct)% consistent",
+                        bullets: dna.bullets,
+                        accentColor: .purple
+                    )
+                    .padding(.horizontal)
+                }
+
                 // Nudges at the top
                 nudgesSection
 
